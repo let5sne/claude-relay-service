@@ -333,6 +333,23 @@ const authenticateApiKey = async (req, res, next) => {
       )
     }
 
+    // 检查累计总费用限制（终身）
+    const totalCostLimit = validation.keyData.totalCostLimit || 0
+    if (totalCostLimit > 0) {
+      const lifetimeCost = validation.keyData.totalCost || 0
+      if (lifetimeCost >= totalCostLimit) {
+        logger.security(
+          `💰 Lifetime total cost limit exceeded for key: ${validation.keyData.id} (${validation.keyData.name}), cost: $${lifetimeCost.toFixed(2)}/$${totalCostLimit}`
+        )
+        return res.status(429).json({
+          error: 'Total cost limit exceeded',
+          message: `已达到总费用限制 ($${totalCostLimit})`,
+          currentCost: lifetimeCost,
+          costLimit: totalCostLimit
+        })
+      }
+    }
+
     // 检查 Opus 周费用限制（仅对 Opus 模型生效）
     const weeklyOpusCostLimit = validation.keyData.weeklyOpusCostLimit || 0
     if (weeklyOpusCostLimit > 0) {
