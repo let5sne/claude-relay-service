@@ -140,6 +140,7 @@ router.post('/api/user-stats', async (req, res) => {
         rateLimitWindow: parseInt(keyData.rateLimitWindow) || 0,
         rateLimitRequests: parseInt(keyData.rateLimitRequests) || 0,
         dailyCostLimit: parseFloat(keyData.dailyCostLimit) || 0,
+        totalCostLimit: parseFloat(keyData.totalCostLimit) || 0,
         dailyCost: dailyCost || 0,
         enableModelRestriction: keyData.enableModelRestriction === 'true',
         restrictedModels,
@@ -196,88 +197,15 @@ router.post('/api/user-stats', async (req, res) => {
     // 获取验证结果中的完整keyData（包含isActive状态和cost信息）
     const fullKeyData = keyData
 
-    // 计算总费用 - 使用与模型统计相同的逻辑（按模型分别计算）
+    // 总费用改为读取 Redis 真实记账，避免与现算口径不一致
     let totalCost = 0
     let formattedCost = '$0.000000'
-
     try {
-      const client = redis.getClientSafe()
-
-      // 获取所有月度模型统计（与model-stats接口相同的逻辑）
-      const allModelKeys = await client.keys(`usage:${keyId}:model:monthly:*:*`)
-      const modelUsageMap = new Map()
-
-      for (const key of allModelKeys) {
-        const modelMatch = key.match(/usage:.+:model:monthly:(.+):(\d{4}-\d{2})$/)
-        if (!modelMatch) {
-          continue
-        }
-
-        const model = modelMatch[1]
-        const data = await client.hgetall(key)
-
-        if (data && Object.keys(data).length > 0) {
-          if (!modelUsageMap.has(model)) {
-            modelUsageMap.set(model, {
-              inputTokens: 0,
-              outputTokens: 0,
-              cacheCreateTokens: 0,
-              cacheReadTokens: 0
-            })
-          }
-
-          const modelUsage = modelUsageMap.get(model)
-          modelUsage.inputTokens += parseInt(data.inputTokens) || 0
-          modelUsage.outputTokens += parseInt(data.outputTokens) || 0
-          modelUsage.cacheCreateTokens += parseInt(data.cacheCreateTokens) || 0
-          modelUsage.cacheReadTokens += parseInt(data.cacheReadTokens) || 0
-        }
-      }
-
-      // 按模型计算费用并汇总
-      for (const [model, usage] of modelUsageMap) {
-        const usageData = {
-          input_tokens: usage.inputTokens,
-          output_tokens: usage.outputTokens,
-          cache_creation_input_tokens: usage.cacheCreateTokens,
-          cache_read_input_tokens: usage.cacheReadTokens
-        }
-
-        const costResult = CostCalculator.calculateCost(usageData, model)
-        totalCost += costResult.costs.total
-      }
-
-      // 如果没有模型级别的详细数据，回退到总体数据计算
-      if (modelUsageMap.size === 0 && fullKeyData.usage?.total?.allTokens > 0) {
-        const usage = fullKeyData.usage.total
-        const costUsage = {
-          input_tokens: usage.inputTokens || 0,
-          output_tokens: usage.outputTokens || 0,
-          cache_creation_input_tokens: usage.cacheCreateTokens || 0,
-          cache_read_input_tokens: usage.cacheReadTokens || 0
-        }
-
-        const costResult = CostCalculator.calculateCost(costUsage, 'claude-3-5-sonnet-20241022')
-        totalCost = costResult.costs.total
-      }
-
+      const costStats = await redis.getCostStats(keyId)
+      totalCost = costStats?.total || 0
       formattedCost = CostCalculator.formatCost(totalCost)
     } catch (error) {
-      logger.warn(`Failed to calculate detailed cost for key ${keyId}:`, error)
-      // 回退到简单计算
-      if (fullKeyData.usage?.total?.allTokens > 0) {
-        const usage = fullKeyData.usage.total
-        const costUsage = {
-          input_tokens: usage.inputTokens || 0,
-          output_tokens: usage.outputTokens || 0,
-          cache_creation_input_tokens: usage.cacheCreateTokens || 0,
-          cache_read_input_tokens: usage.cacheReadTokens || 0
-        }
-
-        const costResult = CostCalculator.calculateCost(costUsage, 'claude-3-5-sonnet-20241022')
-        totalCost = costResult.costs.total
-        formattedCost = costResult.formatted.total
-      }
+      logger.warn(`Failed to load total cost stats for key ${keyId}:`, error)
     }
 
     // 获取当前使用量
@@ -372,6 +300,7 @@ router.post('/api/user-stats', async (req, res) => {
         rateLimitRequests: fullKeyData.rateLimitRequests || 0,
         rateLimitCost: parseFloat(fullKeyData.rateLimitCost) || 0, // 新增：费用限制
         dailyCostLimit: fullKeyData.dailyCostLimit || 0,
+        totalCostLimit: parseFloat(fullKeyData.totalCostLimit) || 0,
         // 当前使用量
         currentWindowRequests,
         currentWindowTokens,
@@ -714,10 +643,23 @@ router.post('/api/batch-model-stats', async (req, res) => {
 
     logger.api(`📊 Batch model stats query for ${apiIds.length} keys, period: ${period}`)
 
+    // 费用改为读取 Redis 真实记账：按 period 汇总多个 Key 的费用
+    let totalCost = 0
+    try {
+      for (const id of apiIds) {
+        const cs = await redis.getCostStats(id)
+        totalCost += period === 'daily' ? cs.daily || 0 : cs.monthly || 0
+      }
+    } catch (e) {
+      logger.warn(`Failed to load ${period} cost stats for batch keys:`, e)
+    }
+
     return res.json({
       success: true,
       data: modelStats,
-      period
+      period,
+      totalCost,
+      formattedCost: CostCalculator.formatCost(totalCost)
     })
   } catch (error) {
     logger.error('❌ Failed to process batch model stats query:', error)

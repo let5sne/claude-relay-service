@@ -125,6 +125,31 @@ If you have any of these concerns, this project might be suitable for you.
 
 ---
 
+## 💰 Cost Limits & Rate Limiting (Important)
+
+Per-API-Key cost/usage limits help you control spending precisely:
+
+- Daily Cost Limit (USD): `dailyCostLimit`
+  - Returns 429 once exceeded, resets at local 00:00 daily
+  - Shown in Stats page “Limit Config” as “Today Cost / Daily Limit” with a progress bar
+- Total Cost Limit (USD): `totalCostLimit`
+  - Lifetime cumulative cost limit; once reached, the key keeps returning 429 until you raise/reset it
+  - Shown in Stats page “Limit Config” as “Lifetime Cost / Total Limit” with a progress bar
+- Window-based rate limit (minutes window):
+  - `rateLimitWindow` + `rateLimitRequests` (requests)
+  - `rateLimitWindow` + `rateLimitCost` (cost)
+  - The conditions are OR; hitting either enforces throttling
+
+Creation/Editing behavior:
+
+- Single create: the create modal lets you set Daily/Total/Window Cost limits directly
+- Batch create: supports `totalCostLimit` and `rateLimitCost`; values apply to each newly created key
+- Edit: you can adjust all above limits anytime in the edit modal
+
+Note: On the “API Key Usage Stats” page (`/admin-next/api-stats`), when querying a specific key, the “Limit Config” card shows current usage vs. limits for Daily Cost / Total Cost / Window limits in real time.
+
+---
+
 ## 📦 Manual Deployment
 
 ### Step 1: Environment Setup

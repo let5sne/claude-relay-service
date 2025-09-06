@@ -231,6 +231,9 @@ router.get('/api-keys', authenticateAdmin, async (req, res) => {
           // 添加格式化的费用到响应数据
           apiKey.usage.total.cost = totalCost
           apiKey.usage.total.formattedCost = CostCalculator.formatCost(totalCost)
+
+          // 同步总费用到顶层字段，供列表展示与排序使用
+          apiKey.totalCost = totalCost
         }
       } else {
         // 7天或本月：重新计算统计数据
@@ -375,6 +378,25 @@ router.get('/api-keys', authenticateAdmin, async (req, res) => {
 
         // 为了保持兼容性，也更新total字段
         apiKey.usage.total = apiKey.usage[timeRange]
+
+        // 同步到顶层字段，保证列表列值与详情一致
+        apiKey.totalCost = totalCost
+        if (timeRange === 'today') {
+          apiKey.dailyCost = totalCost
+        }
+
+        // 接口层防线：保证“今日费用 ≤ 总费用”（只影响展示，不影响真实计费与拦截）
+        try {
+          const costStats = await redis.getCostStats(apiKey.id)
+          const redisTotal = costStats?.total || 0
+          const normalizedTotal = Math.max(apiKey.totalCost || 0, redisTotal)
+          if (timeRange === 'today') {
+            apiKey.dailyCost = Math.min(apiKey.dailyCost || 0, normalizedTotal)
+          }
+          apiKey.totalCost = normalizedTotal
+        } catch (e) {
+          logger.debug(`Cost normalization skipped for ${apiKey.id}:`, e?.message)
+        }
       }
     }
 
@@ -490,6 +512,7 @@ router.post('/api-keys', authenticateAdmin, async (req, res) => {
       enableClientRestriction,
       allowedClients,
       dailyCostLimit,
+      totalCostLimit,
       weeklyOpusCostLimit,
       tags,
       activationDays, // 新增：激活后有效天数
@@ -596,6 +619,14 @@ router.post('/api-keys', authenticateAdmin, async (req, res) => {
       }
     }
 
+    // 校验总费用限制
+    if (totalCostLimit !== undefined && totalCostLimit !== null && totalCostLimit !== '') {
+      const tcl = Number(totalCostLimit)
+      if (isNaN(tcl) || tcl < 0) {
+        return res.status(400).json({ error: 'Total cost limit must be a non-negative number' })
+      }
+    }
+
     const newKey = await apiKeyService.generateApiKey({
       name,
       description,
@@ -616,6 +647,7 @@ router.post('/api-keys', authenticateAdmin, async (req, res) => {
       enableClientRestriction,
       allowedClients,
       dailyCostLimit,
+      totalCostLimit,
       weeklyOpusCostLimit,
       tags,
       activationDays,
@@ -647,11 +679,13 @@ router.post('/api-keys/batch', authenticateAdmin, async (req, res) => {
       concurrencyLimit,
       rateLimitWindow,
       rateLimitRequests,
+      rateLimitCost,
       enableModelRestriction,
       restrictedModels,
       enableClientRestriction,
       allowedClients,
       dailyCostLimit,
+      totalCostLimit,
       weeklyOpusCostLimit,
       tags,
       activationDays,
@@ -671,6 +705,14 @@ router.post('/api-keys/batch', authenticateAdmin, async (req, res) => {
       return res
         .status(400)
         .json({ error: 'Base name must be less than 90 characters to allow for numbering' })
+    }
+
+    // 校验总费用限制（可选）
+    if (totalCostLimit !== undefined && totalCostLimit !== null && totalCostLimit !== '') {
+      const tcl = Number(totalCostLimit)
+      if (isNaN(tcl) || tcl < 0) {
+        return res.status(400).json({ error: 'Total cost limit must be a non-negative number' })
+      }
     }
 
     // 生成批量API Keys
@@ -693,11 +735,13 @@ router.post('/api-keys/batch', authenticateAdmin, async (req, res) => {
           concurrencyLimit,
           rateLimitWindow,
           rateLimitRequests,
+          rateLimitCost,
           enableModelRestriction,
           restrictedModels,
           enableClientRestriction,
           allowedClients,
           dailyCostLimit,
+          totalCostLimit,
           weeklyOpusCostLimit,
           tags,
           activationDays,
@@ -814,6 +858,9 @@ router.put('/api-keys/batch', authenticateAdmin, async (req, res) => {
         if (updates.dailyCostLimit !== undefined) {
           finalUpdates.dailyCostLimit = updates.dailyCostLimit
         }
+        if (updates.totalCostLimit !== undefined) {
+          finalUpdates.totalCostLimit = updates.totalCostLimit
+        }
         if (updates.weeklyOpusCostLimit !== undefined) {
           finalUpdates.weeklyOpusCostLimit = updates.weeklyOpusCostLimit
         }
@@ -929,6 +976,7 @@ router.put('/api-keys/:keyId', authenticateAdmin, async (req, res) => {
       rateLimitWindow,
       rateLimitRequests,
       rateLimitCost,
+      totalCostLimit,
       isActive,
       claudeAccountId,
       claudeConsoleAccountId,
@@ -998,6 +1046,14 @@ router.put('/api-keys/:keyId', authenticateAdmin, async (req, res) => {
         return res.status(400).json({ error: 'Rate limit cost must be a non-negative number' })
       }
       updates.rateLimitCost = cost
+    }
+
+    if (totalCostLimit !== undefined && totalCostLimit !== null && totalCostLimit !== '') {
+      const tcl = Number(totalCostLimit)
+      if (isNaN(tcl) || tcl < 0) {
+        return res.status(400).json({ error: 'Total cost limit must be a non-negative number' })
+      }
+      updates.totalCostLimit = tcl
     }
 
     if (claudeAccountId !== undefined) {
