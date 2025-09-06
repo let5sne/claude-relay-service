@@ -473,7 +473,9 @@
                           <div class="space-y-1 text-sm">
                             <div class="grid grid-cols-2 items-center">
                               <span class="text-gray-600 dark:text-gray-400">今日请求</span>
-                              <span class="text-right font-semibold text-gray-900 dark:text-gray-100">
+                              <span
+                                class="text-right font-semibold text-gray-900 dark:text-gray-100"
+                              >
                                 {{ formatNumber(key.usage?.daily?.requests || 0) }}次
                               </span>
                             </div>
@@ -504,7 +506,9 @@
                             <div class="grid grid-cols-2 items-center">
                               <span class="text-gray-500 dark:text-gray-400">每日费用</span>
                               <span class="text-right text-gray-700 dark:text-gray-300">
-                                ${{ (key.dailyCost || 0).toFixed(2) }} / ${{ key.dailyCostLimit.toFixed(2) }}
+                                ${{ (key.dailyCost || 0).toFixed(2) }}
+                                <span aria-hidden="true"> / </span>
+                                ${{ key.dailyCostLimit.toFixed(2) }}
                               </span>
                             </div>
                           </div>
@@ -522,7 +526,9 @@
                           <div class="grid grid-cols-2 items-center text-xs">
                             <span class="text-gray-500 dark:text-gray-400">Opus周费用</span>
                             <span class="text-right text-gray-700 dark:text-gray-300">
-                              ${{ (key.weeklyOpusCost || 0).toFixed(2) }} / ${{ key.weeklyOpusCostLimit.toFixed(2) }}
+                              ${{ (key.weeklyOpusCost || 0).toFixed(2) }}
+                              <span aria-hidden="true"> / </span>
+                              ${{ key.weeklyOpusCostLimit.toFixed(2) }}
                             </span>
                           </div>
                           <div class="h-1.5 w-full rounded-full bg-gray-200">
