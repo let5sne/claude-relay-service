@@ -34,6 +34,7 @@ class ApiKeyService {
       enableClientRestriction = false,
       allowedClients = [],
       dailyCostLimit = 0,
+      totalCostLimit = 0, // 新增：累计总费用限制
       weeklyOpusCostLimit = 0,
       tags = [],
       activationDays = 0, // 新增：激活后有效天数（0表示不使用此功能）
@@ -68,6 +69,7 @@ class ApiKeyService {
       enableClientRestriction: String(enableClientRestriction || false),
       allowedClients: JSON.stringify(allowedClients || []),
       dailyCostLimit: String(dailyCostLimit || 0),
+      totalCostLimit: String(totalCostLimit || 0),
       weeklyOpusCostLimit: String(weeklyOpusCostLimit || 0),
       tags: JSON.stringify(tags || []),
       activationDays: String(activationDays || 0), // 新增：激活后有效天数
@@ -110,6 +112,7 @@ class ApiKeyService {
       enableClientRestriction: keyData.enableClientRestriction === 'true',
       allowedClients: JSON.parse(keyData.allowedClients || '[]'),
       dailyCostLimit: parseFloat(keyData.dailyCostLimit || 0),
+      totalCostLimit: parseFloat(keyData.totalCostLimit || 0),
       weeklyOpusCostLimit: parseFloat(keyData.weeklyOpusCostLimit || 0),
       tags: JSON.parse(keyData.tags || '[]'),
       activationDays: parseInt(keyData.activationDays || 0),
@@ -244,8 +247,10 @@ class ApiKeyService {
           enableClientRestriction: keyData.enableClientRestriction === 'true',
           allowedClients,
           dailyCostLimit: parseFloat(keyData.dailyCostLimit || 0),
+          totalCostLimit: parseFloat(keyData.totalCostLimit || 0),
           weeklyOpusCostLimit: parseFloat(keyData.weeklyOpusCostLimit || 0),
           dailyCost: dailyCost || 0,
+          totalCost: (await redis.getCostStats(keyData.id))?.total || 0,
           weeklyOpusCost: (await redis.getWeeklyOpusCost(keyData.id)) || 0,
           tags,
           usage
@@ -364,8 +369,10 @@ class ApiKeyService {
           enableClientRestriction: keyData.enableClientRestriction === 'true',
           allowedClients,
           dailyCostLimit: parseFloat(keyData.dailyCostLimit || 0),
+          totalCostLimit: parseFloat(keyData.totalCostLimit || 0),
           weeklyOpusCostLimit: parseFloat(keyData.weeklyOpusCostLimit || 0),
           dailyCost: dailyCost || 0,
+          totalCost: (await redis.getCostStats(keyData.id))?.total || 0,
           weeklyOpusCost: (await redis.getWeeklyOpusCost(keyData.id)) || 0,
           tags,
           usage
@@ -410,6 +417,7 @@ class ApiKeyService {
         key.enableClientRestriction = key.enableClientRestriction === 'true'
         key.permissions = key.permissions || 'all' // 兼容旧数据
         key.dailyCostLimit = parseFloat(key.dailyCostLimit || 0)
+        key.totalCostLimit = parseFloat(key.totalCostLimit || 0)
         key.weeklyOpusCostLimit = parseFloat(key.weeklyOpusCostLimit || 0)
         key.dailyCost = (await redis.getDailyCost(key.id)) || 0
         key.weeklyOpusCost = (await redis.getWeeklyOpusCost(key.id)) || 0
@@ -527,6 +535,7 @@ class ApiKeyService {
         'enableClientRestriction',
         'allowedClients',
         'dailyCostLimit',
+        'totalCostLimit',
         'weeklyOpusCostLimit',
         'tags',
         'userId', // 新增：用户ID（所有者变更）
@@ -890,6 +899,33 @@ class ApiKeyService {
       } catch (pricingError) {
         logger.error('❌ Failed to calculate cost:', pricingError)
         // 继续执行，不要因为费用计算失败而跳过统计记录
+      }
+
+      // 如果无法根据模型定价算出费用（可能因为缺少模型名），退回到静态定价做一次兜底估算
+      if ((!costInfo || costInfo.totalCost === 0) && totalTokens > 0) {
+        try {
+          const fallbackModel = 'claude-3-5-haiku-20241022'
+          const fallback = CostCalculator.calculateCost(
+            {
+              input_tokens: usageObject.input_tokens || 0,
+              output_tokens: usageObject.output_tokens || 0,
+              cache_creation_input_tokens: usageObject.cache_creation_input_tokens || 0,
+              cache_read_input_tokens: usageObject.cache_read_input_tokens || 0
+            },
+            fallbackModel
+          )
+          costInfo = {
+            totalCost: fallback.costs.total,
+            ephemeral5mCost: 0,
+            ephemeral1hCost: 0,
+            isLongContextRequest: false
+          }
+          logger.debug(
+            `💰 Fallback cost used for ${keyId} with model=${model || 'unknown'} => ${fallbackModel}: $${fallback.costs.total}`
+          )
+        } catch (e) {
+          logger.warn('⚠️ Fallback cost calculation failed:', e)
+        }
       }
 
       // 提取详细的缓存创建数据
