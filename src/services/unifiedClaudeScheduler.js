@@ -407,8 +407,10 @@ class UnifiedClaudeScheduler {
           )
           // 继续处理该账号
         }
+        }
 
-        // 检查是否被限流
+        
+        // 检查是否被限流或额度超限
         const isRateLimited = await claudeConsoleAccountService.isAccountRateLimited(account.id)
         const isQuotaExceeded = await claudeConsoleAccountService.isAccountQuotaExceeded(account.id)
 
@@ -545,6 +547,12 @@ class UnifiedClaudeScheduler {
           logger.info(`🚫 Claude Console account ${accountId} is not schedulable`)
           return false
         }
+        // 主动触发一次额度检查（保持额度状态新鲜）
+        try {
+          await claudeConsoleAccountService.checkQuotaUsage(accountId)
+        } catch (e) {
+          logger.warn(`Failed to check quota for Claude Console account ${accountId}: ${e.message}`)
+        }
         // 检查模型支持
         if (
           !this._isModelSupportedByAccount(
@@ -556,15 +564,7 @@ class UnifiedClaudeScheduler {
         ) {
           return false
         }
-        // 检查是否超额
-        try {
-          await claudeConsoleAccountService.checkQuotaUsage(accountId)
-        } catch (e) {
-          logger.warn(`Failed to check quota for Claude Console account ${accountId}: ${e.message}`)
-          // 继续处理
-        }
-
-        // 检查是否被限流
+        // 检查是否被限流/额度超限
         if (await claudeConsoleAccountService.isAccountRateLimited(accountId)) {
           return false
         }
