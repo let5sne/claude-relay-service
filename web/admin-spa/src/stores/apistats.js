@@ -178,8 +178,18 @@ export const useApiStatsStore = defineStore('apistats', () => {
           summary.cacheCreateTokens += model.cacheCreateTokens || 0
           summary.cacheReadTokens += model.cacheReadTokens || 0
           summary.allTokens += model.allTokens || 0
-          summary.cost += model.costs?.total || 0
+          // 费用汇总改为优先使用后端提供的 period 总费用（真实记账）
+          // 这里依然遍历模型，保留字段，但不累加费用，避免与真实记账口径偏差
         })
+        // 若后端提供 totalCost（Redis 真实记账），优先使用
+        if (typeof result.totalCost === 'number') {
+          summary.cost = result.totalCost
+        } else {
+          // 回退：如果没有提供，则按模型费用相加（旧逻辑）
+          modelData.forEach((model) => {
+            summary.cost += model.costs?.total || 0
+          })
+        }
 
         summary.formattedCost = formatCost(summary.cost)
 
