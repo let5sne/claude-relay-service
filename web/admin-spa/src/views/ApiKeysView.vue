@@ -242,10 +242,10 @@
                     <i v-else class="fas fa-sort ml-1 text-gray-400" />
                   </th>
                   <th
-                    class="w-[17%] min-w-[140px] px-3 py-4 text-left text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300"
+                    class="w-[22%] min-w-[180px] px-3 py-4 text-left text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300"
                   >
                     <div class="flex items-center gap-2">
-                      <span>使用统计</span>
+                      <span>使用统计（费用）</span>
                       <span
                         class="cursor-pointer rounded px-1.5 py-0.5 text-xs normal-case hover:bg-gray-100 dark:hover:bg-gray-600"
                         @click="sortApiKeys('dailyCost')"
@@ -468,43 +468,45 @@
                     </td>
                     <td class="px-3 py-4">
                       <div class="space-y-2">
-                        <!-- 今日使用统计 -->
+                        <!-- 今日使用统计（更整齐的两列对齐布局） -->
                         <div class="mb-2">
-                          <div class="mb-1 flex items-center justify-between text-sm">
-                            <span class="text-gray-600 dark:text-gray-400">今日请求</span>
-                            <span class="font-semibold text-gray-900 dark:text-gray-100"
-                              >{{ formatNumber(key.usage?.daily?.requests || 0) }}次</span
-                            >
-                          </div>
-                          <div class="flex items-center justify-between text-sm">
-                            <span class="text-gray-600 dark:text-gray-400">今日费用</span>
-                            <span class="font-semibold text-green-600"
-                              >${{ (key.dailyCost || 0).toFixed(4) }}</span
-                            >
-                          </div>
-                          <div class="flex items-center justify-between text-sm">
-                            <span class="text-gray-600 dark:text-gray-400">总费用</span>
-                            <span class="font-semibold text-blue-600"
-                              >${{ (key.totalCost || 0).toFixed(4) }}</span
-                            >
-                          </div>
-                          <div class="flex items-center justify-between text-sm">
-                            <span class="text-gray-600 dark:text-gray-400">最后使用</span>
-                            <span class="font-medium text-gray-700 dark:text-gray-300">{{
-                              formatLastUsed(key.lastUsedAt)
-                            }}</span>
+                          <div class="space-y-1 text-sm">
+                            <div class="grid grid-cols-2 items-center">
+                              <span class="text-gray-600 dark:text-gray-400">今日请求</span>
+                              <span class="text-right font-semibold text-gray-900 dark:text-gray-100">
+                                {{ formatNumber(key.usage?.daily?.requests || 0) }}次
+                              </span>
+                            </div>
+                            <div class="grid grid-cols-2 items-center">
+                              <span class="text-gray-600 dark:text-gray-400">今日费用</span>
+                              <span class="text-right font-semibold text-green-600">
+                                ${{ (key.dailyCost || 0).toFixed(4) }}
+                              </span>
+                            </div>
+                            <div class="grid grid-cols-2 items-center">
+                              <span class="text-gray-600 dark:text-gray-400">总费用</span>
+                              <span class="text-right font-semibold text-blue-600">
+                                ${{ (key.totalCost || 0).toFixed(4) }}
+                              </span>
+                            </div>
+                            <div class="grid grid-cols-2 items-center">
+                              <span class="text-gray-600 dark:text-gray-400">最后使用</span>
+                              <span class="text-right font-medium text-gray-700 dark:text-gray-300">
+                                {{ formatLastUsed(key.lastUsedAt) }}
+                              </span>
+                            </div>
                           </div>
                         </div>
 
-                        <!-- 每日费用限制进度条 -->
+                        <!-- 每日费用限制进度条（与文案） -->
                         <div v-if="key.dailyCostLimit > 0" class="space-y-1">
-                          <div class="flex items-center justify-between text-xs">
-                            <span class="text-gray-500 dark:text-gray-400">每日费用</span>
-                            <span class="text-gray-700 dark:text-gray-300">
-                              ${{ (key.dailyCost || 0).toFixed(2) }} / ${{
-                                key.dailyCostLimit.toFixed(2)
-                              }}
-                            </span>
+                          <div class="border-t border-gray-200 pt-1 text-xs dark:border-gray-700">
+                            <div class="grid grid-cols-2 items-center">
+                              <span class="text-gray-500 dark:text-gray-400">每日费用</span>
+                              <span class="text-right text-gray-700 dark:text-gray-300">
+                                ${{ (key.dailyCost || 0).toFixed(2) }} / ${{ key.dailyCostLimit.toFixed(2) }}
+                              </span>
+                            </div>
                           </div>
                           <div class="h-1.5 w-full rounded-full bg-gray-200 dark:bg-gray-700">
                             <div
@@ -517,12 +519,10 @@
 
                         <!-- Opus 周费用限制进度条 -->
                         <div v-if="key.weeklyOpusCostLimit > 0" class="space-y-1">
-                          <div class="flex items-center justify-between text-xs">
+                          <div class="grid grid-cols-2 items-center text-xs">
                             <span class="text-gray-500 dark:text-gray-400">Opus周费用</span>
-                            <span class="text-gray-700 dark:text-gray-300">
-                              ${{ (key.weeklyOpusCost || 0).toFixed(2) }} / ${{
-                                key.weeklyOpusCostLimit.toFixed(2)
-                              }}
+                            <span class="text-right text-gray-700 dark:text-gray-300">
+                              ${{ (key.weeklyOpusCost || 0).toFixed(2) }} / ${{ key.weeklyOpusCostLimit.toFixed(2) }}
                             </span>
                           </div>
                           <div class="h-1.5 w-full rounded-full bg-gray-200">
@@ -551,10 +551,10 @@
                           :window-start-time="key.windowStartTime"
                         />
 
-                        <!-- 查看详情按钮 -->
+                        <!-- 查看详情链接风格按钮 -->
                         <div class="pt-1">
                           <button
-                            class="flex w-full items-center justify-center gap-1 rounded py-1 text-xs font-medium text-blue-600 transition-colors hover:bg-blue-50 hover:text-blue-800 dark:hover:bg-blue-900/20 dark:hover:text-blue-400"
+                            class="flex w-full items-center justify-center gap-1 rounded py-1 text-xs font-medium text-blue-600 underline underline-offset-2 transition-colors hover:text-blue-700 dark:hover:text-blue-400"
                             @click="showUsageDetails(key)"
                           >
                             <i class="fas fa-chart-line" />
