@@ -1,0 +1,16 @@
+# <type>(<scope>): <subject>
+#
+# types: feat | fix | docs | style | refactor | perf | test | build | ci | chore | revert
+# scope: 可选，模块/目录/功能名，如 api, web, cli
+# subject: 简短描述，使用祈使句，避免首字母大写与句号结尾
+#
+# body: 可选，说明动机、变更细节、兼容性影响
+#
+# footer: 可选，关联 Issue/PR 或 重大变更说明
+# BREAKING CHANGE: 描述
+
+# 示例：
+# feat(api): support unified OpenAI responses endpoint
+# fix(web): avoid double redirect on /admin-next
+# docs: add deployment notes for caddy
+

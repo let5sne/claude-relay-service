@@ -1,0 +1,31 @@
+# 项目概览
+
+- 名称：Claude Relay Service（自建 Claude API 中转服务）
+- 目的：自托管的 Claude/Gemini/OpenAI 兼容中转服务，支持多账户轮换、API Key 管理、使用统计、成本与监控、Web 管理后台与多种端点格式。可选对接 AWS Bedrock 与 Azure OpenAI，支持 LDAP 登录与 Webhook 通知。
+- 核心组件：
+  - 后端：Node.js 18+、Express、ioredis、winston、helmet、compression、cors
+  - 存储：Redis（6+）
+  - 前端：`web/admin-spa`（Vite 构建，`npm run install:web` / `npm run build:web`）
+  - 运维：Docker/Docker Compose、脚本化服务管理（`scripts/manage.js` + `npm run service:*`）
+- 关键路径：
+  - 入口：`src/app.js`（应用启动、路由挂载、健康检查、指标、缓存监控、优雅关闭）
+  - 配置：`config/config.js`（由 `config/config.example.js` 复制而来）+ `.env`
+  - 路由：`src/routes/`（`api`、`admin`、`web`、`apiStats`、`geminiRoutes`、`openai*Routes`、`azureOpenaiRoutes`、`webhook`）
+  - 服务：`src/services/`（账户/调度/计费/LDAP/Webhook 等）
+  - 工具：`src/utils/`（日志、缓存、代理、Token 计费、掩码、会话等）
+  - 模型定价：`resources/model-pricing/`
+  - CLI：`cli/index.js`（管理员与 API Key/Bedrock 管理工具）
+  - 脚本：`scripts/`（服务管理、状态监控、数据导入导出、修复迁移、测试脚本）
+- 管理后台：
+  - 构建产物路径：`web/admin-spa/dist`
+  - 挂载路径：`/admin-next/`（根路径 `/` 会 301 到 `/admin-next/api-stats`）
+- 重要端点（示例）：
+  - 管理界面：`http://HOST:PORT/admin-next/`
+  - 健康检查：`/health`；指标：`/metrics`
+  - Claude 标准：`/claude/v1/messages`（与 `/api/v1/messages` 等价）
+  - OpenAI 兼容：`/openai/claude/v1/messages`、`/openai/responses`（用于兼容工具）
+  - Gemini：`/gemini`
+  - Azure OpenAI：`/azure/*`
+- 日志与监控：`logs/`（按天滚动）+ `/metrics` 与 `/apiStats`
+- 安全与认证：JWT、API Key 前缀 `cr_`、CORS、速率限制（生产启用）、请求大小限制、User-Agent 客户端限制（Claude CLI/Gemini CLI 识别）
+- 部署：支持本机、系统服务脚本、Docker/Docker Compose，推荐前置 Caddy/Nginx（SSE/流式支持与 HTTPS）
