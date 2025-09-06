@@ -38,6 +38,7 @@
     "migrate:apikey-expiry": "node scripts/migrate-apikey-expiry.js",
     "migrate:apikey-expiry:dry": "node scripts/migrate-apikey-expiry.js --dry-run",
     "migrate:fix-usage-stats": "node scripts/fix-usage-stats.js",
+    "sync:upstream": "bash scripts/sync-upstream.sh",
     "data:export": "node scripts/data-transfer.js export",
     "data:import": "node scripts/data-transfer.js import",
     "data:export:sanitized": "node scripts/data-transfer.js export --sanitize",
