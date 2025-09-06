@@ -43,6 +43,9 @@ test('admin login, create/disable/activate API key, protected redirects, logout'
   await page.getByText('确定关闭').click()
 
   // Verify key row exists (target the table row explicitly)
+  // Narrow list using search to ensure visibility even with pagination
+  const search = page.getByPlaceholder(/搜索名称/)
+  await search.fill(keyName)
   const row = page.locator('table').locator('tr', { hasText: keyName }).first()
   await expect(row).toBeVisible()
   await row.getByText('禁用').click()
