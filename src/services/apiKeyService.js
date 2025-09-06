@@ -2,6 +2,7 @@ const crypto = require('crypto')
 const { v4: uuidv4 } = require('uuid')
 const config = require('../../config/config')
 const redis = require('../models/redis')
+const CostCalculator = require('../utils/costCalculator')
 const logger = require('../utils/logger')
 
 class ApiKeyService {
@@ -34,7 +35,9 @@ class ApiKeyService {
       allowedClients = [],
       dailyCostLimit = 0,
       weeklyOpusCostLimit = 0,
-      tags = []
+      tags = [],
+      activationDays = 0, // 新增：激活后有效天数（0表示不使用此功能）
+      expirationMode = 'fixed' // 新增：过期模式 'fixed'(固定时间) 或 'activation'(首次使用后激活)
     } = options
 
     // 生成简单的API Key (64字符十六进制)
@@ -67,9 +70,13 @@ class ApiKeyService {
       dailyCostLimit: String(dailyCostLimit || 0),
       weeklyOpusCostLimit: String(weeklyOpusCostLimit || 0),
       tags: JSON.stringify(tags || []),
+      activationDays: String(activationDays || 0), // 新增：激活后有效天数
+      expirationMode: expirationMode || 'fixed', // 新增：过期模式
+      isActivated: expirationMode === 'fixed' ? 'true' : 'false', // 根据模式决定激活状态
+      activatedAt: expirationMode === 'fixed' ? new Date().toISOString() : '', // 激活时间
       createdAt: new Date().toISOString(),
       lastUsedAt: '',
-      expiresAt: expiresAt || '',
+      expiresAt: expirationMode === 'fixed' ? expiresAt || '' : '', // 固定模式才设置过期时间
       createdBy: options.createdBy || 'admin',
       userId: options.userId || '',
       userUsername: options.userUsername || ''
@@ -105,6 +112,10 @@ class ApiKeyService {
       dailyCostLimit: parseFloat(keyData.dailyCostLimit || 0),
       weeklyOpusCostLimit: parseFloat(keyData.weeklyOpusCostLimit || 0),
       tags: JSON.parse(keyData.tags || '[]'),
+      activationDays: parseInt(keyData.activationDays || 0),
+      expirationMode: keyData.expirationMode || 'fixed',
+      isActivated: keyData.isActivated === 'true',
+      activatedAt: keyData.activatedAt,
       createdAt: keyData.createdAt,
       expiresAt: keyData.expiresAt,
       createdBy: keyData.createdBy
@@ -131,6 +142,27 @@ class ApiKeyService {
       // 检查是否激活
       if (keyData.isActive !== 'true') {
         return { valid: false, error: 'API key is disabled' }
+      }
+
+      // 处理激活逻辑（仅在 activation 模式下）
+      if (keyData.expirationMode === 'activation' && keyData.isActivated !== 'true') {
+        // 首次使用，需要激活
+        const now = new Date()
+        const activationDays = parseInt(keyData.activationDays || 30) // 默认30天
+        const expiresAt = new Date(now.getTime() + activationDays * 24 * 60 * 60 * 1000)
+
+        // 更新激活状态和过期时间
+        keyData.isActivated = 'true'
+        keyData.activatedAt = now.toISOString()
+        keyData.expiresAt = expiresAt.toISOString()
+        keyData.lastUsedAt = now.toISOString()
+
+        // 保存到Redis
+        await redis.setApiKey(keyData.id, keyData)
+
+        logger.success(
+          `🔓 API key activated: ${keyData.id} (${keyData.name}), will expire in ${activationDays} days at ${expiresAt.toISOString()}`
+        )
       }
 
       // 检查是否过期
@@ -261,6 +293,10 @@ class ApiKeyService {
         key.weeklyOpusCostLimit = parseFloat(key.weeklyOpusCostLimit || 0)
         key.dailyCost = (await redis.getDailyCost(key.id)) || 0
         key.weeklyOpusCost = (await redis.getWeeklyOpusCost(key.id)) || 0
+        key.activationDays = parseInt(key.activationDays || 0)
+        key.expirationMode = key.expirationMode || 'fixed'
+        key.isActivated = key.isActivated === 'true'
+        key.activatedAt = key.activatedAt || null
 
         // 获取当前时间窗口的请求次数、Token使用量和费用
         if (key.rateLimitWindow > 0) {
@@ -362,6 +398,10 @@ class ApiKeyService {
         'bedrockAccountId', // 添加 Bedrock 账号ID
         'permissions',
         'expiresAt',
+        'activationDays', // 新增：激活后有效天数
+        'expirationMode', // 新增：过期模式
+        'isActivated', // 新增：是否已激活
+        'activatedAt', // 新增：激活时间
         'enableModelRestriction',
         'restrictedModels',
         'enableClientRestriction',
@@ -380,9 +420,16 @@ class ApiKeyService {
           if (field === 'restrictedModels' || field === 'allowedClients' || field === 'tags') {
             // 特殊处理数组字段
             updatedData[field] = JSON.stringify(value || [])
-          } else if (field === 'enableModelRestriction' || field === 'enableClientRestriction') {
+          } else if (
+            field === 'enableModelRestriction' ||
+            field === 'enableClientRestriction' ||
+            field === 'isActivated'
+          ) {
             // 布尔值转字符串
             updatedData[field] = String(value)
+          } else if (field === 'expiresAt' || field === 'activatedAt') {
+            // 日期字段保持原样，不要toString()
+            updatedData[field] = value || ''
           } else {
             updatedData[field] = (value !== null && value !== undefined ? value : '').toString()
           }
@@ -584,7 +631,6 @@ class ApiKeyService {
       const totalTokens = inputTokens + outputTokens + cacheCreateTokens + cacheReadTokens
 
       // 计算费用
-      const CostCalculator = require('../utils/costCalculator')
       const costInfo = CostCalculator.calculateCost(
         {
           input_tokens: inputTokens,
@@ -1043,7 +1089,7 @@ class ApiKeyService {
         modelStats: []
       }
 
-      // 汇总所有API Key的统计数据
+      // 汇总总体（累计）统计数据
       for (const keyId of keyIds) {
         const keyStats = await redis.getUsageStats(keyId)
         const costStats = await redis.getCostStats(keyId)
@@ -1055,8 +1101,239 @@ class ApiKeyService {
         }
       }
 
-      // TODO: 实现日期范围和模型统计
-      // 这里可以根据需要添加更详细的统计逻辑
+      // 处理周期参数
+      const period = String(_period || 'week').toLowerCase()
+      const client = redis.getClientSafe()
+
+      // 计算需要聚合的日期范围
+      const tzNow = redis.getDateInTimezone(new Date())
+      const todayStr = redis.getDateStringInTimezone(tzNow)
+      const currentMonth = `${tzNow.getUTCFullYear()}-${String(tzNow.getUTCMonth() + 1).padStart(2, '0')}`
+
+      const dateStrings = []
+      if (period.startsWith('day') || period === 'today' || period === 'daily') {
+        dateStrings.push(todayStr)
+      } else if (period.startsWith('week')) {
+        // 最近7天（含今日）
+        const base = new Date(tzNow)
+        for (let i = 6; i >= 0; i--) {
+          const d = new Date(base)
+          d.setUTCDate(base.getUTCDate() - i)
+          dateStrings.push(redis.getDateStringInTimezone(d))
+        }
+      } else if (period.startsWith('month')) {
+        // 本月从1号到今天
+        const daysInMonth = new Date(
+          tzNow.getUTCFullYear(),
+          tzNow.getUTCMonth() + 1,
+          0
+        ).getUTCDate()
+        for (let day = 1; day <= daysInMonth; day++) {
+          const d = new Date(Date.UTC(tzNow.getUTCFullYear(), tzNow.getUTCMonth(), day))
+          const ds = redis.getDateStringInTimezone(d)
+          // 仅统计到今天
+          if (ds <= todayStr) {
+            dateStrings.push(ds)
+          }
+        }
+      } else {
+        // 默认按最近7天
+        const base = new Date(tzNow)
+        for (let i = 6; i >= 0; i--) {
+          const d = new Date(base)
+          d.setUTCDate(base.getUTCDate() - i)
+          dateStrings.push(redis.getDateStringInTimezone(d))
+        }
+      }
+
+      // 按天聚合每日统计（requests/tokens/cost）
+      const dailyStats = []
+      for (const ds of dateStrings) {
+        let dayRequests = 0
+        let dayInputTokens = 0
+        let dayOutputTokens = 0
+        let dayCacheCreateTokens = 0
+        let dayCacheReadTokens = 0
+        let dayAllTokens = 0
+        let dayCost = 0
+
+        // 批量获取所有 key 在该日的 usage 和 cost
+        const pipeline = client.pipeline()
+        const costPipeline = client.pipeline()
+        for (const keyId of keyIds) {
+          pipeline.hgetall(`usage:daily:${keyId}:${ds}`)
+          costPipeline.get(`usage:cost:daily:${keyId}:${ds}`)
+        }
+        const [usageResults, costResults] = await Promise.all([
+          pipeline.exec(),
+          costPipeline.exec()
+        ])
+
+        // 聚合 usage
+        for (const [err, data] of usageResults) {
+          if (err || !data) {
+            continue
+          }
+          dayRequests += parseInt(data.requests || 0)
+          dayInputTokens += parseInt(data.inputTokens || 0)
+          dayOutputTokens += parseInt(data.outputTokens || 0)
+          dayCacheCreateTokens += parseInt(data.cacheCreateTokens || 0)
+          dayCacheReadTokens += parseInt(data.cacheReadTokens || 0)
+          // allTokens 字段更准确地包含缓存token
+          const allT = parseInt(data.allTokens || 0)
+          if (allT > 0) {
+            dayAllTokens += allT
+          } else {
+            // 兼容旧数据
+            const core = parseInt(data.tokens || 0) || 0
+            dayAllTokens += core
+          }
+        }
+        // 聚合 cost
+        for (const [err, val] of costResults) {
+          if (err) {
+            continue
+          }
+          const v = parseFloat(val || 0)
+          if (!Number.isNaN(v)) {
+            dayCost += v
+          }
+        }
+
+        dailyStats.push({
+          date: ds,
+          requests: dayRequests,
+          inputTokens: dayInputTokens,
+          outputTokens: dayOutputTokens,
+          cacheCreateTokens: dayCacheCreateTokens,
+          cacheReadTokens: dayCacheReadTokens,
+          allTokens: dayAllTokens,
+          cost: dayCost
+        })
+      }
+
+      stats.dailyStats = dailyStats
+
+      // 按模型聚合
+      const modelMap = new Map()
+
+      const addModelUsage = (model, usage) => {
+        if (!modelMap.has(model)) {
+          modelMap.set(model, {
+            name: model,
+            requests: 0,
+            inputTokens: 0,
+            outputTokens: 0,
+            cacheCreateTokens: 0,
+            cacheReadTokens: 0,
+            allTokens: 0
+          })
+        }
+        const m = modelMap.get(model)
+        m.requests += usage.requests || 0
+        m.inputTokens += usage.inputTokens || 0
+        m.outputTokens += usage.outputTokens || 0
+        m.cacheCreateTokens += usage.cacheCreateTokens || 0
+        m.cacheReadTokens += usage.cacheReadTokens || 0
+        m.allTokens += usage.allTokens || 0
+      }
+
+      if (period.startsWith('month')) {
+        // 使用月度模型统计键：usage:{keyId}:model:monthly:{model}:{YYYY-MM}
+        for (const keyId of keyIds) {
+          const keys = await client.keys(`usage:${keyId}:model:monthly:*:${currentMonth}`)
+          if (keys.length === 0) {
+            continue
+          }
+          const pipeline = client.pipeline()
+          keys.forEach((k) => pipeline.hgetall(k))
+          const results = await pipeline.exec()
+          for (let i = 0; i < results.length; i++) {
+            const [err, data] = results[i]
+            if (err || !data) {
+              continue
+            }
+            const match = keys[i].match(/usage:.+:model:monthly:(.+):\d{4}-\d{2}$/)
+            if (!match) {
+              continue
+            }
+            const model = match[1]
+            addModelUsage(model, {
+              requests: parseInt(data.requests || 0),
+              inputTokens: parseInt(data.inputTokens || 0),
+              outputTokens: parseInt(data.outputTokens || 0),
+              cacheCreateTokens: parseInt(data.cacheCreateTokens || 0),
+              cacheReadTokens: parseInt(data.cacheReadTokens || 0),
+              allTokens: parseInt(data.allTokens || 0)
+            })
+          }
+        }
+      } else {
+        // 按天汇总模型（今日或最近7天）
+        for (const keyId of keyIds) {
+          for (const ds of dateStrings) {
+            const keys = await client.keys(`usage:${keyId}:model:daily:*:${ds}`)
+            if (keys.length === 0) {
+              continue
+            }
+            const pipeline = client.pipeline()
+            keys.forEach((k) => pipeline.hgetall(k))
+            const results = await pipeline.exec()
+            for (let i = 0; i < results.length; i++) {
+              const [err, data] = results[i]
+              if (err || !data) {
+                continue
+              }
+              const match = keys[i].match(/usage:.+:model:daily:(.+):\d{4}-\d{2}-\d{2}$/)
+              if (!match) {
+                continue
+              }
+              const model = match[1]
+              addModelUsage(model, {
+                requests: parseInt(data.requests || 0),
+                inputTokens: parseInt(data.inputTokens || 0),
+                outputTokens: parseInt(data.outputTokens || 0),
+                cacheCreateTokens: parseInt(data.cacheCreateTokens || 0),
+                cacheReadTokens: parseInt(data.cacheReadTokens || 0),
+                allTokens: parseInt(data.allTokens || 0)
+              })
+            }
+          }
+        }
+      }
+
+      // 计算各模型费用并格式化
+      const modelStats = []
+      for (const [modelName, m] of modelMap.entries()) {
+        // 可选：仅返回指定模型
+        if (_model && _model !== modelName) {
+          continue
+        }
+
+        const usage = {
+          input_tokens: m.inputTokens,
+          output_tokens: m.outputTokens,
+          cache_creation_input_tokens: m.cacheCreateTokens,
+          cache_read_input_tokens: m.cacheReadTokens
+        }
+        const cost = CostCalculator.calculateCost(usage, modelName)
+        modelStats.push({
+          name: modelName,
+          requests: m.requests,
+          inputTokens: m.inputTokens,
+          outputTokens: m.outputTokens,
+          cacheCreateTokens: m.cacheCreateTokens,
+          cacheReadTokens: m.cacheReadTokens,
+          allTokens: m.allTokens,
+          cost: cost.costs.total,
+          formatted: cost.formatted,
+          pricing: cost.pricing
+        })
+      }
+
+      // 按总token数降序
+      modelStats.sort((a, b) => b.allTokens - a.allTokens)
+      stats.modelStats = modelStats
 
       return stats
     } catch (error) {
