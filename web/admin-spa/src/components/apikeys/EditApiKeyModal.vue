@@ -273,6 +273,55 @@
 
           <div>
             <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+              >总费用限制 (美元)</label
+            >
+            <div class="space-y-3">
+              <div class="flex gap-2">
+                <button
+                  class="rounded-lg bg-gray-100 px-3 py-1 text-sm font-medium hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
+                  type="button"
+                  @click="form.totalCostLimit = '100'"
+                >
+                  $100
+                </button>
+                <button
+                  class="rounded-lg bg-gray-100 px-3 py-1 text-sm font-medium hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
+                  type="button"
+                  @click="form.totalCostLimit = '500'"
+                >
+                  $500
+                </button>
+                <button
+                  class="rounded-lg bg-gray-100 px-3 py-1 text-sm font-medium hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
+                  type="button"
+                  @click="form.totalCostLimit = '1000'"
+                >
+                  $1000
+                </button>
+                <button
+                  class="rounded-lg bg-gray-100 px-3 py-1 text-sm font-medium hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
+                  type="button"
+                  @click="form.totalCostLimit = ''"
+                >
+                  自定义
+                </button>
+              </div>
+              <input
+                v-model="form.totalCostLimit"
+                class="form-input w-full border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
+                min="0"
+                placeholder="0 表示无限制"
+                step="0.01"
+                type="number"
+              />
+              <p class="text-xs text-gray-500 dark:text-gray-400">
+                针对该 API Key 的累计费用限制；达到后将拒绝后续请求，0 或留空表示无限制
+              </p>
+            </div>
+          </div>
+
+          <div>
+            <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
               >Opus 模型周费用限制 (美元)</label
             >
             <div class="space-y-3">
@@ -711,6 +760,7 @@ const form = reactive({
   rateLimitCost: '', // 新增：费用限制
   concurrencyLimit: '',
   dailyCostLimit: '',
+  totalCostLimit: '',
   weeklyOpusCostLimit: '',
   permissions: 'all',
   claudeAccountId: '',
@@ -823,6 +873,10 @@ const updateApiKey = async () => {
       dailyCostLimit:
         form.dailyCostLimit !== '' && form.dailyCostLimit !== null
           ? parseFloat(form.dailyCostLimit)
+          : 0,
+      totalCostLimit:
+        form.totalCostLimit !== '' && form.totalCostLimit !== null
+          ? parseFloat(form.totalCostLimit)
           : 0,
       weeklyOpusCostLimit:
         form.weeklyOpusCostLimit !== '' && form.weeklyOpusCostLimit !== null
@@ -1050,6 +1104,7 @@ onMounted(async () => {
   form.rateLimitRequests = props.apiKey.rateLimitRequests || ''
   form.concurrencyLimit = props.apiKey.concurrencyLimit || ''
   form.dailyCostLimit = props.apiKey.dailyCostLimit || ''
+  form.totalCostLimit = props.apiKey.totalCostLimit || ''
   form.weeklyOpusCostLimit = props.apiKey.weeklyOpusCostLimit || ''
   form.permissions = props.apiKey.permissions || 'all'
   // 处理 Claude 账号（区分 OAuth 和 Console）
