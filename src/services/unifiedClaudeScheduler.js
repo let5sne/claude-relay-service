@@ -407,9 +407,7 @@ class UnifiedClaudeScheduler {
           )
           // 继续处理该账号
         }
-        }
 
-        
         // 检查是否被限流或额度超限
         const isRateLimited = await claudeConsoleAccountService.isAccountRateLimited(account.id)
         const isQuotaExceeded = await claudeConsoleAccountService.isAccountQuotaExceeded(account.id)

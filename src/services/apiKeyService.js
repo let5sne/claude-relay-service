@@ -631,7 +631,6 @@ class ApiKeyService {
       const totalTokens = inputTokens + outputTokens + cacheCreateTokens + cacheReadTokens
 
       // 计算费用
-      const CostCalculator = require('../utils/costCalculator')
       const costInfo = CostCalculator.calculateCost(
         {
           input_tokens: inputTokens,
@@ -1172,7 +1171,9 @@ class ApiKeyService {
 
         // 聚合 usage
         for (const [err, data] of usageResults) {
-          if (err || !data) continue
+          if (err || !data) {
+            continue
+          }
           dayRequests += parseInt(data.requests || 0)
           dayInputTokens += parseInt(data.inputTokens || 0)
           dayOutputTokens += parseInt(data.outputTokens || 0)
@@ -1184,15 +1185,19 @@ class ApiKeyService {
             dayAllTokens += allT
           } else {
             // 兼容旧数据
-            const core = (parseInt(data.tokens || 0) || 0)
+            const core = parseInt(data.tokens || 0) || 0
             dayAllTokens += core
           }
         }
         // 聚合 cost
         for (const [err, val] of costResults) {
-          if (err) continue
+          if (err) {
+            continue
+          }
           const v = parseFloat(val || 0)
-          if (!Number.isNaN(v)) dayCost += v
+          if (!Number.isNaN(v)) {
+            dayCost += v
+          }
         }
 
         dailyStats.push({
@@ -1237,15 +1242,21 @@ class ApiKeyService {
         // 使用月度模型统计键：usage:{keyId}:model:monthly:{model}:{YYYY-MM}
         for (const keyId of keyIds) {
           const keys = await client.keys(`usage:${keyId}:model:monthly:*:${currentMonth}`)
-          if (keys.length === 0) continue
+          if (keys.length === 0) {
+            continue
+          }
           const pipeline = client.pipeline()
           keys.forEach((k) => pipeline.hgetall(k))
           const results = await pipeline.exec()
           for (let i = 0; i < results.length; i++) {
             const [err, data] = results[i]
-            if (err || !data) continue
+            if (err || !data) {
+              continue
+            }
             const match = keys[i].match(/usage:.+:model:monthly:(.+):\d{4}-\d{2}$/)
-            if (!match) continue
+            if (!match) {
+              continue
+            }
             const model = match[1]
             addModelUsage(model, {
               requests: parseInt(data.requests || 0),
@@ -1262,15 +1273,21 @@ class ApiKeyService {
         for (const keyId of keyIds) {
           for (const ds of dateStrings) {
             const keys = await client.keys(`usage:${keyId}:model:daily:*:${ds}`)
-            if (keys.length === 0) continue
+            if (keys.length === 0) {
+              continue
+            }
             const pipeline = client.pipeline()
             keys.forEach((k) => pipeline.hgetall(k))
             const results = await pipeline.exec()
             for (let i = 0; i < results.length; i++) {
               const [err, data] = results[i]
-              if (err || !data) continue
+              if (err || !data) {
+                continue
+              }
               const match = keys[i].match(/usage:.+:model:daily:(.+):\d{4}-\d{2}-\d{2}$/)
-              if (!match) continue
+              if (!match) {
+                continue
+              }
               const model = match[1]
               addModelUsage(model, {
                 requests: parseInt(data.requests || 0),
@@ -1289,7 +1306,9 @@ class ApiKeyService {
       const modelStats = []
       for (const [modelName, m] of modelMap.entries()) {
         // 可选：仅返回指定模型
-        if (_model && _model !== modelName) continue
+        if (_model && _model !== modelName) {
+          continue
+        }
 
         const usage = {
           input_tokens: m.inputTokens,
