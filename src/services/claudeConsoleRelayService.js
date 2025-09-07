@@ -5,7 +5,8 @@ const config = require('../../config/config')
 
 class ClaudeConsoleRelayService {
   constructor() {
-    this.defaultUserAgent = 'claude-cli/1.0.69 (external, cli)'
+    // Align default UA with recent CLI to improve upstream behavior
+    this.defaultUserAgent = 'claude-cli/1.0.108 (external, cli)'
   }
 
   // 🚀 转发请求到Claude Console API
