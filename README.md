@@ -7,7 +7,7 @@
 [![Redis](https://img.shields.io/badge/Redis-6+-red.svg)](https://redis.io/)
 [![Docker](https://img.shields.io/badge/Docker-Ready-blue.svg)](https://www.docker.com/)
 [![Docker Build](https://github.com/Wei-Shaw/claude-relay-service/actions/workflows/auto-release-pipeline.yml/badge.svg)](https://github.com/Wei-Shaw/claude-relay-service/actions/workflows/auto-release-pipeline.yml)
-[![Docker Pulls](https://img.shields.io/docker/pulls/weishaw/claude-relay-service)](https://hub.docker.com/r/weishaw/claude-relay-service)
+[![Docker Pulls](https://img.shields.io/docker/pulls/let5see/claude-relay-service)](https://hub.docker.com/r/let5see/claude-relay-service)
 
 **🔐 自行搭建Claude API中转服务，支持多账户管理**
 
@@ -329,7 +329,7 @@ npm run service:status
 
 ```bash
 # 拉取镜像（支持 amd64 和 arm64）
-docker pull weishaw/claude-relay-service:latest
+docker pull let5see/claude-relay-service:latest
 
 # 使用 docker-compose
 # 创建 .env 文件用于 docker-compose 的环境变量：
@@ -348,7 +348,7 @@ cat > docker-compose.yml << 'EOF'
 version: '3.8'
 services:
   claude-relay:
-    image: weishaw/claude-relay-service:latest
+    image: let5see/claude-relay-service:latest
     container_name: claude-relay-service
     restart: unless-stopped
     ports:
