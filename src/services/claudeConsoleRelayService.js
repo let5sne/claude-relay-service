@@ -512,9 +512,52 @@ class ClaudeConsoleRelayService {
                         data.usage &&
                         data.usage.output_tokens !== undefined
                       ) {
+                        // 一些上游在 message_delta 中返回 output_tokens
                         collectedUsageData.output_tokens = data.usage.output_tokens || 0
 
                         if (collectedUsageData.input_tokens !== undefined && !finalUsageReported) {
+                          usageCallback({ ...collectedUsageData, accountId })
+                          finalUsageReported = true
+                        }
+                      }
+
+                      // 兼容：部分实现把 usage 放在最终的 message_stop 事件中
+                      if (
+                        data.type === 'message_stop' &&
+                        data.usage &&
+                        (data.usage.output_tokens !== undefined ||
+                          data.usage.input_tokens !== undefined)
+                      ) {
+                        if (collectedUsageData.input_tokens === undefined) {
+                          collectedUsageData.input_tokens = data.usage.input_tokens || 0
+                        }
+                        collectedUsageData.output_tokens = data.usage.output_tokens || 0
+
+                        if (!finalUsageReported) {
+                          usageCallback({ ...collectedUsageData, accountId })
+                          finalUsageReported = true
+                        }
+                      }
+
+                      // 兼容：部分上游返回 response.completed 或类似事件携带 usage
+                      if (
+                        (data.type === 'response.completed' || data.type === 'response_complete') &&
+                        (data.usage || (data.response && data.response.usage))
+                      ) {
+                        const u = data.usage || data.response.usage
+                        if (collectedUsageData.input_tokens === undefined) {
+                          collectedUsageData.input_tokens = u.input_tokens || 0
+                        }
+                        collectedUsageData.output_tokens = u.output_tokens || 0
+                        if (u.cache_creation_input_tokens !== undefined) {
+                          collectedUsageData.cache_creation_input_tokens =
+                            u.cache_creation_input_tokens || 0
+                        }
+                        if (u.cache_read_input_tokens !== undefined) {
+                          collectedUsageData.cache_read_input_tokens =
+                            u.cache_read_input_tokens || 0
+                        }
+                        if (!finalUsageReported) {
                           usageCallback({ ...collectedUsageData, accountId })
                           finalUsageReported = true
                         }
