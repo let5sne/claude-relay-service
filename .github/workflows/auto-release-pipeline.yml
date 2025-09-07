@@ -392,8 +392,20 @@ jobs:
       uses: docker/login-action@v3
       with:
         registry: docker.io
-        username: ${{ secrets.DOCKERHUB_USERNAME }}
-        password: ${{ secrets.DOCKERHUB_TOKEN }}
+        username: ${{ secrets.DOCKERHUB_USERNAME || 'let5see' }}
+        password: ${{ secrets.DOCKERHUB_TOKEN || secrets.DOCKERHUB_PASSWORD || secrets.DOCKER_HUB_TOKEN || secrets.DOCKER_HUB_PASSWORD }}
+
+    - name: Validate Docker Hub credentials
+      if: steps.check.outputs.needs_bump == 'true'
+      env:
+        DH_USER: ${{ secrets.DOCKERHUB_USERNAME || 'let5see' }}
+        DH_PASS: ${{ secrets.DOCKERHUB_TOKEN || secrets.DOCKERHUB_PASSWORD || secrets.DOCKER_HUB_TOKEN || secrets.DOCKER_HUB_PASSWORD }}
+      run: |
+        if [ -z "$DH_PASS" ]; then
+          echo "::error::Docker Hub token/password secret missing. Please set one of: DOCKERHUB_TOKEN (recommended), DOCKERHUB_PASSWORD, DOCKER_HUB_TOKEN, DOCKER_HUB_PASSWORD."
+          exit 1
+        fi
+        echo "Using Docker Hub user: $DH_USER"
 
     - name: Build and push Docker image
       if: steps.check.outputs.needs_bump == 'true'
