@@ -481,25 +481,59 @@ class ClaudeConsoleRelayService {
                       const jsonStr = line.slice(6)
                       const data = JSON.parse(jsonStr)
 
-                      // 收集usage数据
-                      if (data.type === 'message_start' && data.message && data.message.usage) {
-                        collectedUsageData.input_tokens = data.message.usage.input_tokens || 0
-                        collectedUsageData.cache_creation_input_tokens =
-                          data.message.usage.cache_creation_input_tokens || 0
-                        collectedUsageData.cache_read_input_tokens =
-                          data.message.usage.cache_read_input_tokens || 0
-                        collectedUsageData.model = data.message.model
+                      // 统一抽取 usage 的辅助函数（兼容多种上游格式）
+                      const extractUsage = (obj) => {
+                        if (!obj) {
+                          return null
+                        }
+                        return (
+                          obj.usage ||
+                          obj.message?.usage ||
+                          obj.delta?.usage ||
+                          obj.response?.usage ||
+                          null
+                        )
+                      }
+
+                      const usageInEvent = extractUsage(data)
+
+                      // 收集usage数据（出现于 message_start 或任意事件的 *.usage）
+                      if (
+                        (data.type === 'message_start' && data.message && data.message.usage) ||
+                        usageInEvent
+                      ) {
+                        const u = usageInEvent || data.message.usage
+                        if (u) {
+                          if (u.input_tokens !== undefined) {
+                            collectedUsageData.input_tokens = u.input_tokens || 0
+                          }
+                          if (u.cache_creation_input_tokens !== undefined) {
+                            collectedUsageData.cache_creation_input_tokens =
+                              u.cache_creation_input_tokens || 0
+                          }
+                          if (u.cache_read_input_tokens !== undefined) {
+                            collectedUsageData.cache_read_input_tokens =
+                              u.cache_read_input_tokens || 0
+                          }
+                        }
+                        collectedUsageData.model =
+                          data.message?.model || collectedUsageData.model || body?.model
 
                         // 检查是否有详细的 cache_creation 对象
-                        if (
-                          data.message.usage.cache_creation &&
+                        const cacheCreation =
+                          (u && u.cache_creation && typeof u.cache_creation === 'object'
+                            ? u.cache_creation
+                            : null) ||
+                          (data.message &&
+                          data.message.usage &&
                           typeof data.message.usage.cache_creation === 'object'
-                        ) {
+                            ? data.message.usage.cache_creation
+                            : null)
+
+                        if (cacheCreation) {
                           collectedUsageData.cache_creation = {
-                            ephemeral_5m_input_tokens:
-                              data.message.usage.cache_creation.ephemeral_5m_input_tokens || 0,
-                            ephemeral_1h_input_tokens:
-                              data.message.usage.cache_creation.ephemeral_1h_input_tokens || 0
+                            ephemeral_5m_input_tokens: cacheCreation.ephemeral_5m_input_tokens || 0,
+                            ephemeral_1h_input_tokens: cacheCreation.ephemeral_1h_input_tokens || 0
                           }
                           logger.info(
                             '📊 Collected detailed cache creation data:',
@@ -508,13 +542,15 @@ class ClaudeConsoleRelayService {
                         }
                       }
 
+                      // 输出 token 兼容：message_delta.usage 或任何事件中的 usage/output_tokens
+                      const u2 = usageInEvent || data.usage
                       if (
-                        data.type === 'message_delta' &&
-                        data.usage &&
-                        data.usage.output_tokens !== undefined
+                        (data.type === 'message_delta' &&
+                          data.usage &&
+                          data.usage.output_tokens !== undefined) ||
+                        (u2 && u2.output_tokens !== undefined)
                       ) {
-                        // 一些上游在 message_delta 中返回 output_tokens
-                        collectedUsageData.output_tokens = data.usage.output_tokens || 0
+                        collectedUsageData.output_tokens = (u2 && u2.output_tokens) || 0
 
                         if (collectedUsageData.input_tokens !== undefined && !finalUsageReported) {
                           usageCallback({ ...collectedUsageData, accountId })
