@@ -415,9 +415,9 @@ jobs:
         platforms: linux/amd64,linux/arm64
         push: true
         tags: |
-          ${{ secrets.DOCKERHUB_USERNAME }}/claude-relay-service:${{ steps.next_version.outputs.new_tag }}
-          ${{ secrets.DOCKERHUB_USERNAME }}/claude-relay-service:latest
-          ${{ secrets.DOCKERHUB_USERNAME }}/claude-relay-service:${{ steps.next_version.outputs.new_version }}
+          ${{ secrets.DOCKERHUB_USERNAME || 'let5see' }}/claude-relay-service:${{ steps.next_version.outputs.new_tag }}
+          ${{ secrets.DOCKERHUB_USERNAME || 'let5see' }}/claude-relay-service:latest
+          ${{ secrets.DOCKERHUB_USERNAME || 'let5see' }}/claude-relay-service:${{ steps.next_version.outputs.new_version }}
         labels: |
           org.opencontainers.image.version=${{ steps.next_version.outputs.new_version }}
           org.opencontainers.image.revision=${{ github.sha }}
