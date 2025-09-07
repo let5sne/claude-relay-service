@@ -1113,7 +1113,7 @@ class ClaudeRelayService {
                     )
                   }
 
-                  // message_delta包含最终的output tokens
+                  // message_delta包含最终的output tokens（旧格式）
                   if (
                     data.type === 'message_delta' &&
                     data.usage &&
@@ -1141,6 +1141,52 @@ class ClaudeRelayService {
                       // 重置当前数据，准备接收下一个
                       currentUsageData = {}
                     }
+                  }
+
+                  // 兼容：部分实现把 usage 放到最终的 message_stop 事件（新格式）
+                  if (
+                    data.type === 'message_stop' &&
+                    data.usage &&
+                    (data.usage.output_tokens !== undefined ||
+                      data.usage.input_tokens !== undefined)
+                  ) {
+                    if (currentUsageData.input_tokens === undefined) {
+                      currentUsageData.input_tokens = data.usage.input_tokens || 0
+                    }
+                    currentUsageData.output_tokens = data.usage.output_tokens || 0
+
+                    logger.debug(
+                      '📊 Collected usage from message_stop:',
+                      JSON.stringify(currentUsageData)
+                    )
+
+                    allUsageData.push({ ...currentUsageData })
+                    currentUsageData = {}
+                  }
+
+                  // 兼容：一些网关用 response.completed/response_complete 携带 usage
+                  if (
+                    (data.type === 'response.completed' || data.type === 'response_complete') &&
+                    (data.usage || (data.response && data.response.usage))
+                  ) {
+                    const u = data.usage || data.response.usage
+                    if (currentUsageData.input_tokens === undefined) {
+                      currentUsageData.input_tokens = u.input_tokens || 0
+                    }
+                    currentUsageData.output_tokens = u.output_tokens || 0
+                    if (u.cache_creation_input_tokens !== undefined) {
+                      currentUsageData.cache_creation_input_tokens =
+                        u.cache_creation_input_tokens || 0
+                    }
+                    if (u.cache_read_input_tokens !== undefined) {
+                      currentUsageData.cache_read_input_tokens = u.cache_read_input_tokens || 0
+                    }
+                    logger.debug(
+                      '📊 Collected usage from response.completed:',
+                      JSON.stringify(currentUsageData)
+                    )
+                    allUsageData.push({ ...currentUsageData })
+                    currentUsageData = {}
                   }
 
                   // 检查是否有限流错误
