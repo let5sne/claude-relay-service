@@ -38,7 +38,10 @@ WORKDIR /app
 COPY package*.json ./
 
 # 🔽 安装依赖 (生产环境)
-RUN npm ci --only=production && \
+# - 禁用 husky/prepare 等脚本，避免在生产镜像内执行导致失败
+# - 仅安装生产依赖，减小镜像体积
+ENV HUSKY=0
+RUN npm ci --omit=dev --ignore-scripts && \
     npm cache clean --force
 
 # 📋 复制应用代码
