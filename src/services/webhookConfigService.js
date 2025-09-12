@@ -1,6 +1,7 @@
 const redis = require('../models/redis')
 const logger = require('../utils/logger')
 const { v4: uuidv4 } = require('uuid')
+const inputValidator = require('../utils/inputValidator')
 
 class WebhookConfigService {
   constructor() {
@@ -74,9 +75,11 @@ class WebhookConfigService {
 
         // Bark和SMTP平台不使用标准URL
         if (platform.type !== 'bark' && platform.type !== 'smtp') {
-          if (!platform.url || !this.isValidUrl(platform.url)) {
-            throw new Error(`无效的webhook URL: ${platform.url}`)
+          if (!platform.url) {
+            throw new Error('webhook URL 不能为空')
           }
+          // 使用更严格的校验，拒绝内网/本地/非 http(s) URL
+          inputValidator.validateWebhookUrl(platform.url)
         }
 
         // 验证平台特定的配置
@@ -133,9 +136,8 @@ class WebhookConfigService {
 
         // 验证服务器URL（如果提供）
         if (platform.serverUrl) {
-          if (!this.isValidUrl(platform.serverUrl)) {
-            throw new Error('Bark服务器URL格式无效')
-          }
+          // Bark 服务器 URL 也使用严格校验
+          inputValidator.validateWebhookUrl(platform.serverUrl)
           if (!platform.serverUrl.includes('/push')) {
             logger.warn('⚠️ Bark服务器URL应该以/push结尾')
           }
@@ -193,13 +195,21 @@ class WebhookConfigService {
         }
 
         // 验证图标URL（如果提供）
-        if (platform.icon && !this.isValidUrl(platform.icon)) {
-          logger.warn('⚠️ Bark图标URL格式可能不正确')
+        if (platform.icon) {
+          try {
+            inputValidator.validateWebhookUrl(platform.icon)
+          } catch {
+            logger.warn('⚠️ Bark图标URL格式可能不正确')
+          }
         }
 
         // 验证点击跳转URL（如果提供）
-        if (platform.clickUrl && !this.isValidUrl(platform.clickUrl)) {
-          logger.warn('⚠️ Bark点击跳转URL格式可能不正确')
+        if (platform.clickUrl) {
+          try {
+            inputValidator.validateWebhookUrl(platform.clickUrl)
+          } catch {
+            logger.warn('⚠️ Bark点击跳转URL格式可能不正确')
+          }
         }
         break
       case 'smtp': {
@@ -247,18 +257,6 @@ class WebhookConfigService {
         }
         break
       }
-    }
-  }
-
-  /**
-   * 验证URL格式
-   */
-  isValidUrl(url) {
-    try {
-      new URL(url)
-      return true
-    } catch {
-      return false
     }
   }
 

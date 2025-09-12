@@ -6139,14 +6139,9 @@ router.post('/openai-accounts/exchange-code', authenticateAdmin, async (req, res
 
     const { id_token, access_token, refresh_token, expires_in } = tokenResponse.data
 
-    // 解析 ID token 获取用户信息
-    const idTokenParts = id_token.split('.')
-    if (idTokenParts.length !== 3) {
-      throw new Error('Invalid ID token format')
-    }
-
-    // 解码 JWT payload
-    const payload = JSON.parse(Buffer.from(idTokenParts[1], 'base64url').toString())
+    // 验证并解析 ID token（使用 OpenAI JWKS）
+    const { verifyOpenAIIdToken } = require('../utils/jwtVerifier')
+    const payload = await verifyOpenAIIdToken(id_token, OPENAI_CONFIG.CLIENT_ID)
 
     // 获取 OpenAI 特定的声明
     const authClaims = payload['https://api.openai.com/auth'] || {}

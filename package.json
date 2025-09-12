@@ -46,7 +46,11 @@
     "data:export:encrypted": "node scripts/data-transfer-enhanced.js export --decrypt=false",
     "data:import:enhanced": "node scripts/data-transfer-enhanced.js import",
     "data:debug": "node scripts/debug-redis-keys.js",
-    "test:pricing-fallback": "node scripts/test-pricing-fallback.js"
+    "test:pricing-fallback": "node scripts/test-pricing-fallback.js",
+    "prepare": "husky",
+    "ci:backend": "npm run lint:check && npm run format:check",
+    "ci:frontend": "cd web/admin-spa && npm ci --prefer-offline --no-audit && npm run lint && npm run build",
+    "ci:local": "npm run ci:backend && npm run ci:frontend"
   },
   "dependencies": {
     "@aws-sdk/client-bedrock-runtime": "^3.861.0",
@@ -64,6 +68,7 @@
     "https-proxy-agent": "^7.0.2",
     "inquirer": "^8.2.6",
     "ioredis": "^5.3.2",
+    "jose": "^5.2.0",
     "ldapjs": "^3.0.7",
     "morgan": "^1.10.0",
     "nodemailer": "^7.0.6",
@@ -83,7 +88,12 @@
     "jest": "^29.7.0",
     "nodemon": "^3.0.1",
     "prettier": "^3.6.2",
+    "husky": "^9.1.6",
+    "lint-staged": "^15.2.10",
     "supertest": "^6.3.3"
+  },
+  "lint-staged": {
+    "**/*.{js,jsx,ts,tsx,vue,cjs,mjs,json,md,yml,yaml}": "prettier --write --ignore-unknown"
   },
   "engines": {
     "node": ">=18.0.0"

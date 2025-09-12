@@ -1,0 +1,15 @@
+#!/usr/bin/env sh
+. "$(dirname "$0")/_/husky.sh"
+
+echo "Running local CI (backend) before push..."
+npm run -s ci:backend || exit 1
+
+# Optional frontend lint if dependencies already installed to keep hook fast
+if [ -d "web/admin-spa/node_modules" ]; then
+  echo "Running frontend lint..."
+  (cd web/admin-spa && npm run -s lint) || exit 1
+else
+  echo "Skipping frontend lint (web/admin-spa/node_modules not found)."
+  echo "Run 'npm run ci:frontend' manually for a full check."
+fi
+

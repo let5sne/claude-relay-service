@@ -5,6 +5,7 @@ const logger = require('../utils/logger')
 const webhookConfigService = require('./webhookConfigService')
 const { getISOStringWithTimezone } = require('../utils/dateHelper')
 const appConfig = require('../../config/config')
+const inputValidator = require('../utils/inputValidator')
 
 class WebhookService {
   constructor() {
@@ -294,6 +295,8 @@ class WebhookService {
    * 发送HTTP请求
    */
   async sendHttpRequest(url, payload, timeout) {
+    // 发送前进行严格的 URL 校验，避免 SSRF
+    inputValidator.validateWebhookUrl(url)
     const response = await axios.post(url, payload, {
       timeout,
       headers: {
