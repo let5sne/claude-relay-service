@@ -246,3 +246,6 @@ web/apiStats/
 
 # Admin SPA build files
 web/admin-spa/dist/
+
+# Serena AI assistant files
+.serena/
