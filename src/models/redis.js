@@ -66,12 +66,13 @@ class RedisClient {
       }
 
       // 优先使用 REDIS_URL (Railway 等平台提供)
-      // 如为 Railway 且 REDIS_URL 指向私网域名，但未开私网，可用 REDIS_PUBLIC_URL 回退
+      // 仅当 REDIS_URL 缺失或显式开启偏好时才回退到 REDIS_PUBLIC_URL
       let redisUrl = process.env.REDIS_URL || null
-      const redisPublicUrl = process.env.REDIS_PUBLIC_URL || null
-      if ((!redisUrl || /railway\.internal/i.test(redisUrl)) && redisPublicUrl) {
-        logger.info('🔗 Using REDIS_PUBLIC_URL fallback (detected internal host in REDIS_URL)')
-        redisUrl = redisPublicUrl
+      const preferPublic =
+        process.env.REDIS_PREFER_PUBLIC === 'true' || process.env.USE_REDIS_PUBLIC_URL === '1'
+      if ((!redisUrl || preferPublic) && process.env.REDIS_PUBLIC_URL) {
+        logger.info('🔗 Using REDIS_PUBLIC_URL fallback')
+        redisUrl = process.env.REDIS_PUBLIC_URL
       }
 
       const baseOptions = {
@@ -91,6 +92,14 @@ class RedisClient {
         if (!/([?&])family=/.test(urlToUse)) {
           const sep = urlToUse.includes('?') ? '&' : '?'
           urlToUse += `${sep}family=0`
+        }
+        if (process.env.LOG_REDIS_DETAILS === 'true') {
+          try {
+            const u = new URL(urlToUse)
+            logger.info(
+              `🔍 Redis target => protocol: ${u.protocol}, host: ${u.hostname}, port: ${u.port}, tls: ${u.protocol.startsWith('rediss')}`
+            )
+          } catch (_) {}
         }
         logger.info('🔗 Using REDIS_URL for connection')
         this.client = new Redis(urlToUse, { ...baseOptions })
