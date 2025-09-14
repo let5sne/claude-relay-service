@@ -6881,6 +6881,14 @@ router.post('/azure-openai-accounts', authenticateAdmin, async (req, res) => {
       })
     }
 
+    // 仅允许安全格式的 deploymentName，字母、数字、下划线、短横线
+    if (!/^[\w-]+$/.test(deploymentName)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid deployment name format. Only letters, numbers, hyphens, and underscores are allowed.'
+      })
+    }
+
     // 验证 Azure endpoint 格式
     if (!azureEndpoint.match(/^https:\/\/[\w-]+\.openai\.azure\.com$/)) {
       return res.status(400).json({
