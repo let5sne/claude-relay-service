@@ -83,7 +83,8 @@ class RedisClient {
         // 文档示例: new Redis(process.env.REDIS_URL + "?family=0")
         let urlToUse = redisUrl
         if (!/([?&])family=/.test(urlToUse)) {
-          urlToUse += (urlToUse.includes('?') ? '&' : '?') + 'family=0'
+          const sep = urlToUse.includes('?') ? '&' : '?'
+          urlToUse += `${sep}family=0`
         }
         logger.info('🔗 Using REDIS_URL for connection')
         this.client = new Redis(urlToUse, { ...baseOptions })
