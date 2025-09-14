@@ -96,10 +96,13 @@ class RedisClient {
         if (process.env.LOG_REDIS_DETAILS === 'true') {
           try {
             const u = new URL(urlToUse)
+            const tlsEnabled = u.protocol.startsWith('rediss')
             logger.info(
-              `🔍 Redis target => protocol: ${u.protocol}, host: ${u.hostname}, port: ${u.port}, tls: ${u.protocol.startsWith('rediss')}`
+              `🔍 Redis target => protocol: ${u.protocol}, host: ${u.hostname}, port: ${u.port}, tls: ${tlsEnabled}`
             )
-          } catch (_) {}
+          } catch (e) {
+            logger.warn('⚠️  Failed to parse REDIS_URL for logging')
+          }
         }
         logger.info('🔗 Using REDIS_URL for connection')
         this.client = new Redis(urlToUse, { ...baseOptions })
