@@ -249,3 +249,6 @@ web/admin-spa/dist/
 
 # Serena AI assistant files
 .serena/
+
+# Railway环境变量文件（包含敏感信息）
+.railway.env
