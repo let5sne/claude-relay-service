@@ -400,8 +400,35 @@ class Application {
       const initFilePath = path.join(__dirname, '..', 'data', 'init.json')
 
       if (!fs.existsSync(initFilePath)) {
-        logger.warn('⚠️ No admin credentials found. Please run npm run setup first.')
-        return
+        // 尝试使用环境变量自动初始化（兼容 Railway 覆盖 startCommand 导致 entrypoint 未执行的情况）
+        const envUser = process.env.ADMIN_USERNAME
+        const envPass = process.env.ADMIN_PASSWORD
+        if (envUser && envPass) {
+          try {
+            const initDir = path.dirname(initFilePath)
+            if (!fs.existsSync(initDir)) {
+              fs.mkdirSync(initDir, { recursive: true })
+            }
+            const initDataFromEnv = {
+              initializedAt: new Date().toISOString(),
+              adminUsername: envUser,
+              adminPassword: envPass,
+              version: '1.0.0',
+              updatedAt: new Date().toISOString()
+            }
+            fs.writeFileSync(initFilePath, JSON.stringify(initDataFromEnv, null, 2))
+            logger.success('✅ Created data/init.json from ADMIN_USERNAME/ADMIN_PASSWORD')
+          } catch (e) {
+            logger.error('❌ Failed to create init.json from env:', e)
+            logger.warn('⚠️ No admin credentials found. Please run npm run setup first.')
+            return
+          }
+        } else {
+          logger.warn(
+            '⚠️ No admin credentials found. Please set ADMIN_USERNAME/ADMIN_PASSWORD or run npm run setup.'
+          )
+          return
+        }
       }
 
       // 从 init.json 读取管理员凭据（作为唯一真实数据源）
