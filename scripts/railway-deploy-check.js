@@ -6,7 +6,6 @@
  */
 
 const fs = require('fs')
-const path = require('path')
 
 console.log('🚀 Railway部署前检查...\n')
 
