@@ -47,10 +47,19 @@ class Application {
 
   async initialize() {
     try {
-      // 🔗 连接Redis
-      logger.info('🔄 Connecting to Redis...')
-      await redis.connect()
-      logger.success('✅ Redis connected successfully')
+      // 🔗 连接Redis（支持可选降级启动）
+      const allowStartWithoutRedis = require('../config/config').system?.allowStartWithoutRedis
+      try {
+        logger.info('🔄 Connecting to Redis...')
+        await redis.connect()
+        logger.success('✅ Redis connected successfully')
+      } catch (err) {
+        logger.error('💥 Failed to connect to Redis:', err)
+        if (!allowStartWithoutRedis) {
+          throw err
+        }
+        logger.warn('🟡 ALLOW_START_WITHOUT_REDIS=true，服务将以降级模式启动（部分功能不可用）')
+      }
 
       // 💰 初始化价格服务
       logger.info('🔄 Initializing pricing service...')
@@ -59,26 +68,38 @@ class Application {
       // 📊 初始化缓存监控
       await this.initializeCacheMonitoring()
 
-      // 🔧 初始化管理员凭据
-      logger.info('🔄 Initializing admin credentials...')
-      await this.initializeAdmin()
-
-      // 💰 初始化费用数据
-      logger.info('💰 Checking cost data initialization...')
-      const costInitService = require('./services/costInitService')
-      const needsInit = await costInitService.needsInitialization()
-      if (needsInit) {
-        logger.info('💰 Initializing cost data for all API Keys...')
-        const result = await costInitService.initializeAllCosts()
-        logger.info(
-          `💰 Cost initialization completed: ${result.processed} processed, ${result.errors} errors`
-        )
+      // 🔧 初始化管理员凭据（无 Redis 时跳过）
+      if (redis.isConnected) {
+        logger.info('🔄 Initializing admin credentials...')
+        await this.initializeAdmin()
+      } else {
+        logger.warn('🟡 Redis 未连接，跳过管理员凭据初始化')
       }
 
-      // 🕐 初始化Claude账户会话窗口
-      logger.info('🕐 Initializing Claude account session windows...')
-      const claudeAccountService = require('./services/claudeAccountService')
-      await claudeAccountService.initializeSessionWindows()
+      // 💰 初始化费用数据（无 Redis 时跳过）
+      if (redis.isConnected) {
+        logger.info('💰 Checking cost data initialization...')
+        const costInitService = require('./services/costInitService')
+        const needsInit = await costInitService.needsInitialization()
+        if (needsInit) {
+          logger.info('💰 Initializing cost data for all API Keys...')
+          const result = await costInitService.initializeAllCosts()
+          logger.info(
+            `💰 Cost initialization completed: ${result.processed} processed, ${result.errors} errors`
+          )
+        }
+      } else {
+        logger.warn('🟡 Redis 未连接，跳过费用数据初始化')
+      }
+
+      // 🕐 初始化Claude账户会话窗口（无 Redis 时跳过）
+      if (redis.isConnected) {
+        logger.info('🕐 Initializing Claude account session windows...')
+        const claudeAccountService = require('./services/claudeAccountService')
+        await claudeAccountService.initializeSessionWindows()
+      } else {
+        logger.warn('🟡 Redis 未连接，跳过会话窗口初始化')
+      }
 
       // 超早期拦截 /admin-next/ 请求 - 在所有中间件之前
       this.app.use((req, res, next) => {
@@ -522,6 +543,11 @@ class Application {
     // 🧹 每小时清理一次过期数据
     setInterval(async () => {
       try {
+        if (!redis.isConnected) {
+          logger.warn('🧹 跳过清理任务：Redis 未连接')
+          return
+        }
+
         logger.info('🧹 Starting scheduled cleanup...')
 
         const apiKeyService = require('./services/apiKeyService')
