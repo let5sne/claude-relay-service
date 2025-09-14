@@ -54,14 +54,27 @@ ADMIN_USERNAME=admin
 ADMIN_PASSWORD=your-secure-admin-password
 ```
 
-#### 📊 Redis配置 (自动设置)
+#### 📊 Redis配置（私网 VS 公网）
 
-Railway会自动设置以下Redis环境变量：
+本项目同时支持 Railway 私有网络（推荐）与公网访问两种连接方式，请二选一并保持“单一真相”。
 
-- `REDIS_URL`
-- `REDIS_HOST`
-- `REDIS_PORT`
-- `REDIS_PASSWORD`
+- 私网（推荐）：延迟低、无需 TLS。
+  - 两个服务都需开启 Private Networking（Web 与 Redis）且位于同一 Environment/Region。
+  - 变量模板（其一即可）：
+    - 仅主机：`REDIS_HOST=redis.railway.internal`（不需要端口与密码时，保留一个变量最稳）
+    - 或完整 URL：`REDIS_URL=redis://default:<密码>@redis.railway.internal:6379`
+  - 不要设置 `REDIS_ENABLE_TLS`。
+
+- 公网（仅当私网不可用）：需要 TLS。
+  - 打开 Redis 的 Public Internet。
+  - 使用公开连接串：`REDIS_URL=rediss://default:<密码>@containers-xxxx.railway.app:<端口>`
+  - 或者分散变量：`REDIS_HOST=containers-xxxx.railway.app`、`REDIS_PORT=<端口>`、`REDIS_PASSWORD=<密码>`，并设置 `REDIS_ENABLE_TLS=true`。
+
+兼容性与调试开关：
+
+- 变量兼容：支持 `REDIS_URL`，或 `REDIS_HOST/REDIS_PORT/REDIS_PASSWORD`；兼容老变量名 `REDISHOST/REDISPORT/REDISPASSWORD/REDISUSER`。
+- IPv4/IPv6：内部已对 ioredis 自动添加 `family=0`，以适配 Railway 私网 IPv6-only 解析。
+- 日志：`LOG_REDIS_DETAILS=true` 可打印去敏的连接目标（协议/主机/端口/TLS）。
 
 #### 🔧 可选配置
 
@@ -120,7 +133,9 @@ Railway会自动设置 `PORT` 环境变量，应用会监听该端口。
 
 ### Redis连接
 
-Railway提供的Redis服务会自动配置连接参数，应用会自动使用这些配置。
+- 选择“私网”或“公网”其一配置，避免混用。
+- 若看到日志 `ENOTFOUND redis.railway.internal`，多为 DNS 仅 IPv6 导致。项目已启用 `family=0`，但仍需确保两边都开启 Private Networking 并处在同一 Environment/Region。
+- 若为 `ETIMEDOUT`：通常是私网未双向开启或公网入口未开放（未启用 Public Internet）。
 
 ### 健康检查
 
@@ -147,9 +162,10 @@ Railway提供的Redis服务会自动配置连接参数，应用会自动使用�
    - 查看应用启动日志
 
 3. **Redis连接失败**
-   - 确保Redis服务已正确添加
-   - 检查Redis环境变量
-   - 验证网络连接
+   - ENOTFOUND：启用双侧 Private Networking + 同一 Environment/Region；或改用公网 rediss://
+   - ETIMEDOUT：未真正开通的访问路径（私网未双开 / 公网未开放端口）
+   - 变量冲突：请只保留一套（URL 或 HOST/PORT/PASSWORD）
+   - 调试：设置 `LOG_REDIS_DETAILS=true`，查看目标协议/主机/端口/TLS
 
 4. **健康检查失败**
    - 确保应用监听正确的端口
@@ -233,3 +249,16 @@ Railway提供的Redis服务会自动配置连接参数，应用会自动使用�
 - [Railway文档](https://docs.railway.app/)
 - [Railway社区](https://discord.gg/railway)
 - [GitHub Issues](https://github.com/let5sne/claude-relay-service/issues)
+
+5. **管理员登录 401 Unauthorized**
+   - Railway 的 `startCommand` 可能绕过 entrypoint，首次启动未生成 `data/init.json`
+   - 解决方案（二选一）：
+     - 在变量中设置 `ADMIN_USERNAME` 与 `ADMIN_PASSWORD`，项目会在启动时自动创建 `data/init.json` 并加载到 Redis
+     - 在容器 Shell 中运行 `node cli/index.js admin` 交互创建管理员
+   - 日志出现 `Admin username: xxx` 即表示凭据已生效
+
+6. **允许降级启动（仅排障临时使用）**
+   - `ALLOW_START_WITHOUT_REDIS=true` 可让应用在 Redis 不可达时先启动（部分功能不可用）。排障结束后建议移除。
+
+7. **定价文件与回退**
+   - 启动时如未检测到 `data/model_pricing.json`，会从 `resources/model-pricing` 回退并自动下载最新定价至 `data/model_pricing.json`。文件变更会被监听并热加载。
