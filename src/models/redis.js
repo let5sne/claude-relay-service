@@ -78,20 +78,26 @@ class RedisClient {
 
       if (redisUrl) {
         // 使用 REDIS_URL 连接 (Railway 等平台)
+        // Railway 私网为 IPv6，仅 A 记录解析会导致 ENOTFOUND。
+        // 参照官方文档，ioredis 需通过 family=0 兼容 IPv4/IPv6 解析。
+        // 文档示例: new Redis(process.env.REDIS_URL + "?family=0")
+        let urlToUse = redisUrl
+        if (!/([?&])family=/.test(urlToUse)) {
+          urlToUse += (urlToUse.includes('?') ? '&' : '?') + 'family=0'
+        }
         logger.info('🔗 Using REDIS_URL for connection')
-        this.client = new Redis(redisUrl, baseOptions)
+        this.client = new Redis(urlToUse, { ...baseOptions })
       } else {
         // 使用单独的配置项连接 (本地开发)
-        this.client = new Redis(
-          {
-            host: config.redis.host,
-            port: config.redis.port,
-            password: config.redis.password,
-            db: config.redis.db,
-            ...baseOptions
-          }
-          // tls 通过 baseOptions 提供
-        )
+        // 统一在对象分支也指定 family=0
+        this.client = new Redis({
+          host: config.redis.host,
+          port: config.redis.port,
+          password: config.redis.password,
+          db: config.redis.db,
+          family: 0,
+          ...baseOptions
+        })
         logger.info('🔗 Using individual Redis config for connection')
       }
 
