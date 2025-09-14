@@ -66,7 +66,13 @@ class RedisClient {
       }
 
       // 优先使用 REDIS_URL (Railway 等平台提供)
-      const redisUrl = process.env.REDIS_URL
+      // 如为 Railway 且 REDIS_URL 指向私网域名，但未开私网，可用 REDIS_PUBLIC_URL 回退
+      let redisUrl = process.env.REDIS_URL || null
+      const redisPublicUrl = process.env.REDIS_PUBLIC_URL || null
+      if ((!redisUrl || /railway\.internal/i.test(redisUrl)) && redisPublicUrl) {
+        logger.info('🔗 Using REDIS_PUBLIC_URL fallback (detected internal host in REDIS_URL)')
+        redisUrl = redisPublicUrl
+      }
 
       const baseOptions = {
         lazyConnect: true,
@@ -90,15 +96,24 @@ class RedisClient {
         this.client = new Redis(urlToUse, { ...baseOptions })
       } else {
         // 使用单独的配置项连接 (本地开发)
-        // 统一在对象分支也指定 family=0
-        this.client = new Redis({
-          host: config.redis.host,
-          port: config.redis.port,
-          password: config.redis.password,
+        // 统一在对象分支也指定 family=0，并兼容无下划线变量名（REDISHOST/REDISPORT/REDISPASSWORD/REDISUSER）
+        const env = process.env
+        const host = env.REDIS_HOST || env.REDISHOST || config.redis.host
+        const port = parseInt(env.REDIS_PORT || env.REDISPORT || `${config.redis.port}`, 10)
+        const password = env.REDIS_PASSWORD || env.REDISPASSWORD || config.redis.password
+        const username = env.REDIS_USER || env.REDISUSER || undefined
+
+        const objectOptions = {
+          host,
+          port,
+          password,
           db: config.redis.db,
           family: 0,
           ...baseOptions
-        })
+        }
+        if (username) objectOptions.username = username
+
+        this.client = new Redis(objectOptions)
         logger.info('🔗 Using individual Redis config for connection')
       }
 
