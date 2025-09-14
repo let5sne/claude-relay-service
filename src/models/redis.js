@@ -97,11 +97,20 @@ class RedisClient {
       } else {
         // 使用单独的配置项连接 (本地开发)
         // 统一在对象分支也指定 family=0，并兼容无下划线变量名（REDISHOST/REDISPORT/REDISPASSWORD/REDISUSER）
-        const env = process.env
-        const host = env.REDIS_HOST || env.REDISHOST || config.redis.host
-        const port = parseInt(env.REDIS_PORT || env.REDISPORT || `${config.redis.port}`, 10)
-        const password = env.REDIS_PASSWORD || env.REDISPASSWORD || config.redis.password
-        const username = env.REDIS_USER || env.REDISUSER || undefined
+        const {
+          REDIS_HOST,
+          REDISHOST,
+          REDIS_PORT,
+          REDISPORT,
+          REDIS_PASSWORD,
+          REDISPASSWORD,
+          REDIS_USER,
+          REDISUSER
+        } = process.env
+        const host = REDIS_HOST || REDISHOST || config.redis.host
+        const port = parseInt(REDIS_PORT || REDISPORT || `${config.redis.port}`, 10)
+        const password = REDIS_PASSWORD || REDISPASSWORD || config.redis.password
+        const username = REDIS_USER || REDISUSER || undefined
 
         const objectOptions = {
           host,
@@ -111,7 +120,9 @@ class RedisClient {
           family: 0,
           ...baseOptions
         }
-        if (username) objectOptions.username = username
+        if (username) {
+          objectOptions.username = username
+        }
 
         this.client = new Redis(objectOptions)
         logger.info('🔗 Using individual Redis config for connection')
