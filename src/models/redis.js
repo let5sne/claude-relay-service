@@ -56,16 +56,30 @@ class RedisClient {
 
   async connect() {
     try {
-      this.client = new Redis({
-        host: config.redis.host,
-        port: config.redis.port,
-        password: config.redis.password,
-        db: config.redis.db,
-        retryDelayOnFailover: config.redis.retryDelayOnFailover,
-        maxRetriesPerRequest: config.redis.maxRetriesPerRequest,
-        lazyConnect: config.redis.lazyConnect,
-        tls: config.redis.enableTLS ? {} : false
-      })
+      // 优先使用 REDIS_URL (Railway 等平台提供)
+      const redisUrl = process.env.REDIS_URL
+      let redisConfig
+
+      if (redisUrl) {
+        // 使用 REDIS_URL 连接 (Railway 等平台)
+        redisConfig = redisUrl
+        logger.info('🔗 Using REDIS_URL for connection')
+      } else {
+        // 使用单独的配置项连接 (本地开发)
+        redisConfig = {
+          host: config.redis.host,
+          port: config.redis.port,
+          password: config.redis.password,
+          db: config.redis.db,
+          retryDelayOnFailover: config.redis.retryDelayOnFailover,
+          maxRetriesPerRequest: config.redis.maxRetriesPerRequest,
+          lazyConnect: config.redis.lazyConnect,
+          tls: config.redis.enableTLS ? {} : false
+        }
+        logger.info('🔗 Using individual Redis config for connection')
+      }
+
+      this.client = new Redis(redisConfig)
 
       this.client.on('connect', () => {
         this.isConnected = true

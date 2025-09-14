@@ -12,8 +12,8 @@ yarn-error.log*
 logs/
 *.log
 
-# Data files
-data/
+# Data files (保留必要的配置文件)
+# data/  # 注释掉，因为需要 model_pricing.json
 temp/
 
 # Git
