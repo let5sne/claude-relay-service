@@ -20,6 +20,7 @@ pnpm-debug.log*
 # Data directory (contains sensitive information)
 data/
 !data/.gitkeep
+!data/model_pricing.json
 
 # Redis data directory
 redis_data/

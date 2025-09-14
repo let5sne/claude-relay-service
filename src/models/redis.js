@@ -56,30 +56,44 @@ class RedisClient {
 
   async connect() {
     try {
+      // 若已在连接中或已连接，直接复用
+      if (this.client && typeof this.client.status === 'string') {
+        const s = this.client.status
+        if (s === 'connecting' || s === 'connect' || s === 'ready') {
+          logger.info('🔗 Redis is already connecting/connected')
+          return this.client
+        }
+      }
+
       // 优先使用 REDIS_URL (Railway 等平台提供)
       const redisUrl = process.env.REDIS_URL
-      let redisConfig
+
+      const baseOptions = {
+        lazyConnect: true,
+        maxRetriesPerRequest: config.redis.maxRetriesPerRequest,
+        retryDelayOnFailover: config.redis.retryDelayOnFailover,
+        connectTimeout: config.redis.connectTimeout,
+        tls: config.redis.enableTLS ? {} : undefined
+      }
 
       if (redisUrl) {
         // 使用 REDIS_URL 连接 (Railway 等平台)
-        redisConfig = redisUrl
         logger.info('🔗 Using REDIS_URL for connection')
+        this.client = new Redis(redisUrl, baseOptions)
       } else {
         // 使用单独的配置项连接 (本地开发)
-        redisConfig = {
-          host: config.redis.host,
-          port: config.redis.port,
-          password: config.redis.password,
-          db: config.redis.db,
-          retryDelayOnFailover: config.redis.retryDelayOnFailover,
-          maxRetriesPerRequest: config.redis.maxRetriesPerRequest,
-          lazyConnect: config.redis.lazyConnect,
-          tls: config.redis.enableTLS ? {} : false
-        }
+        this.client = new Redis(
+          {
+            host: config.redis.host,
+            port: config.redis.port,
+            password: config.redis.password,
+            db: config.redis.db,
+            ...baseOptions
+          }
+          // tls 通过 baseOptions 提供
+        )
         logger.info('🔗 Using individual Redis config for connection')
       }
-
-      this.client = new Redis(redisConfig)
 
       this.client.on('connect', () => {
         this.isConnected = true

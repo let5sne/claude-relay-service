@@ -16,13 +16,32 @@ const unifiedClaudeScheduler = require('../services/unifiedClaudeScheduler')
 const claudeCodeHeadersService = require('../services/claudeCodeHeadersService')
 const sessionHelper = require('../utils/sessionHelper')
 
-// 加载模型定价数据
+// 加载模型定价数据（带回退，不阻塞启动）
 let modelPricingData = {}
 try {
-  const pricingPath = path.join(__dirname, '../../data/model_pricing.json')
-  const pricingContent = fs.readFileSync(pricingPath, 'utf8')
-  modelPricingData = JSON.parse(pricingContent)
-  logger.info('✅ Model pricing data loaded successfully')
+  const dataPath = path.join(process.cwd(), 'data', 'model_pricing.json')
+  const fallbackPath = path.join(
+    __dirname,
+    '../../resources/model-pricing/model_prices_and_context_window.json'
+  )
+
+  let pricingPathToUse = null
+  if (fs.existsSync(dataPath)) {
+    pricingPathToUse = dataPath
+  } else if (fs.existsSync(fallbackPath)) {
+    pricingPathToUse = fallbackPath
+    logger.warn('⚠️  data/model_pricing.json missing, using resources fallback')
+  }
+
+  if (pricingPathToUse) {
+    const pricingContent = fs.readFileSync(pricingPathToUse, 'utf8')
+    modelPricingData = JSON.parse(pricingContent)
+    logger.info(
+      `✅ Model pricing data loaded from ${path.relative(process.cwd(), pricingPathToUse)}`
+    )
+  } else {
+    logger.warn('💰 No pricing file found; model details will use defaults')
+  }
 } catch (error) {
   logger.error('❌ Failed to load model pricing data:', error)
 }
