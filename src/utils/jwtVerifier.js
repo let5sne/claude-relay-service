@@ -15,14 +15,6 @@ async function getJose() {
 
 async function getRemoteJwks() {
   if (!cachedJwks) {
-    const { createRemoteJWKSet } = await getJose()
-    // 尝试多个可能的 JWKS 端点
-    const jwksUrls = [
-      'https://api.openai.com/.well-known/jwks.json',
-      'https://auth.openai.com/.well-known/jwks.json',
-      'https://api.openai.com/v1/.well-known/jwks.json'
-    ]
-
     // 由于 OpenAI 的 JWKS 端点可能不可用，我们使用一个备用的验证方法
     // 或者直接跳过签名验证，只验证基本结构
     cachedJwks = null // 设置为 null 表示跳过 JWKS 验证
