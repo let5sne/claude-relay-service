@@ -587,12 +587,22 @@
                             :token-limit="key.tokenLimit || 0"
                           />
 
+                          <!-- 总费用限制进度条 -->
+                          <LimitProgressBar
+                            v-if="key.totalCostLimit > 0"
+                            :current="key.totalCost || 0"
+                            label="总费用"
+                            :limit="key.totalCostLimit"
+                            type="total"
+                          />
+
                           <!-- 如果没有任何限制 -->
                           <div
                             v-if="
                               !key.dailyCostLimit &&
                               !key.weeklyOpusCostLimit &&
-                              !key.rateLimitWindow
+                              !key.rateLimitWindow &&
+                              !key.totalCostLimit
                             "
                             class="dark:to-gray-750 relative h-7 w-full overflow-hidden rounded-md border border-gray-200 bg-gradient-to-r from-gray-50 to-gray-100 dark:border-gray-700 dark:from-gray-800"
                           >
@@ -1228,9 +1238,23 @@
                     :token-limit="key.tokenLimit || 0"
                   />
 
+                  <!-- 总费用限制 -->
+                  <LimitProgressBar
+                    v-if="key.totalCostLimit > 0"
+                    :current="key.totalCost || 0"
+                    label="总费用"
+                    :limit="key.totalCostLimit"
+                    type="total"
+                  />
+
                   <!-- 无限制显示 -->
                   <div
-                    v-if="!key.dailyCostLimit && !key.weeklyOpusCostLimit && !key.rateLimitWindow"
+                    v-if="
+                      !key.dailyCostLimit &&
+                      !key.weeklyOpusCostLimit &&
+                      !key.rateLimitWindow &&
+                      !key.totalCostLimit
+                    "
                     class="dark:to-gray-750 relative h-7 w-full overflow-hidden rounded-md border border-gray-200 bg-gradient-to-r from-gray-50 to-gray-100 dark:border-gray-700 dark:from-gray-800"
                   >
                     <div class="flex h-full items-center justify-center gap-1.5">
