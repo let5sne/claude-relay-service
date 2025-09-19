@@ -1,0 +1,55 @@
+name: Manual Create GitHub Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (e.g. v1.1.157)"
+        required: true
+      notes_path:
+        description: "Path to release notes markdown (optional)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Resolve notes content
+        id: notes
+        shell: bash
+        run: |
+          TAG='${{ github.event.inputs.tag }}'
+          NOTES_PATH='${{ github.event.inputs.notes_path }}'
+          BODY_FILE=""
+          if [ -n "$NOTES_PATH" ] && [ -f "$NOTES_PATH" ]; then
+            BODY_FILE="$NOTES_PATH"
+          else
+            CANDIDATE="docs/RELEASE_NOTES_${TAG}.md"
+            if [ -f "$CANDIDATE" ]; then
+              BODY_FILE="$CANDIDATE"
+            else
+              echo "No notes file found. A minimal body will be generated."
+              printf "# %s\n\nSee CHANGELOG.md and commit history." "$TAG" > release_body.md
+              BODY_FILE="release_body.md"
+            fi
+          fi
+          echo "file=$BODY_FILE" >> $GITHUB_OUTPUT
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag }}
+          body_path: ${{ steps.notes.outputs.file }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
