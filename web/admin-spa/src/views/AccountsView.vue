@@ -119,7 +119,7 @@
           <thead class="bg-gray-50/80 backdrop-blur-sm dark:bg-gray-700/80">
             <tr>
               <th
-                class="w-[22%] min-w-[180px] cursor-pointer px-3 py-4 text-left text-xs font-bold uppercase tracking-wider text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-600"
+                class="w-[20%] min-w-[180px] cursor-pointer px-3 py-4 text-left text-xs font-bold uppercase tracking-wider text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-600"
                 @click="sortAccounts('name')"
               >
                 名称
@@ -132,6 +132,11 @@
                   ]"
                 />
                 <i v-else class="fas fa-sort ml-1 text-gray-400" />
+              </th>
+              <th
+                class="w-[16%] min-w-[160px] px-3 py-4 text-left text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300"
+              >
+                分组
               </th>
               <th
                 class="w-[15%] min-w-[120px] cursor-pointer px-3 py-4 text-left text-xs font-bold uppercase tracking-wider text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-600"
@@ -273,20 +278,6 @@
                         <i class="fas fa-share-alt mr-1" />共享
                       </span>
                     </div>
-                    <!-- 显示所有分组 - 换行显示 -->
-                    <div
-                      v-if="account.groupInfos && account.groupInfos.length > 0"
-                      class="my-2 flex flex-wrap items-center gap-2"
-                    >
-                      <span
-                        v-for="group in account.groupInfos"
-                        :key="group.id"
-                        class="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-400"
-                        :title="`所属分组: ${group.name}`"
-                      >
-                        <i class="fas fa-folder mr-1" />{{ group.name }}
-                      </span>
-                    </div>
                     <div
                       class="truncate text-xs text-gray-500 dark:text-gray-400"
                       :title="account.id"
@@ -294,6 +285,26 @@
                       {{ account.id }}
                     </div>
                   </div>
+                </div>
+              </td>
+              <td class="px-3 py-4">
+                <div class="flex flex-wrap items-center gap-2">
+                  <template v-if="account.groupInfos && account.groupInfos.length > 0">
+                    <span
+                      v-for="group in account.groupInfos"
+                      :key="group.id"
+                      class="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-400"
+                      :title="`所属分组: ${group.name}`"
+                    >
+                      <i class="fas fa-folder mr-1" />{{ group.name }}
+                    </span>
+                  </template>
+                  <span
+                    v-else
+                    class="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500 dark:bg-gray-700 dark:text-gray-400"
+                  >
+                    <i class="fas fa-user mr-1" />未分组
+                  </span>
                 </div>
               </td>
               <td class="px-3 py-4">
@@ -784,6 +795,23 @@
                   <span class="text-xs text-gray-400">|</span>
                   <span class="text-xs text-gray-500 dark:text-gray-400">{{ account.type }}</span>
                 </div>
+                <div class="mt-1 flex flex-wrap items-center gap-1">
+                  <template v-if="account.groupInfos && account.groupInfos.length > 0">
+                    <span
+                      v-for="group in account.groupInfos"
+                      :key="group.id"
+                      class="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-400"
+                    >
+                      <i class="fas fa-folder mr-1" />{{ group.name }}
+                    </span>
+                  </template>
+                  <span
+                    v-else
+                    class="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-500 dark:bg-gray-700 dark:text-gray-400"
+                  >
+                    <i class="fas fa-user mr-1" />未分组
+                  </span>
+                </div>
               </div>
             </div>
             <span
@@ -1053,6 +1081,17 @@ const platformOptions = ref([
   { value: 'ccr', label: 'CCR', icon: 'fa-code-branch' }
 ])
 
+const endpointConfigs = [
+  { key: 'claude', url: '/admin/claude-accounts' },
+  { key: 'claude-console', url: '/admin/claude-console-accounts' },
+  { key: 'bedrock', url: '/admin/bedrock-accounts' },
+  { key: 'gemini', url: '/admin/gemini-accounts' },
+  { key: 'openai', url: '/admin/openai-accounts' },
+  { key: 'azure_openai', url: '/admin/azure-openai-accounts' },
+  { key: 'openai-responses', url: '/admin/openai-responses-accounts' },
+  { key: 'ccr', url: '/admin/ccr-accounts' }
+]
+
 const groupOptions = computed(() => {
   const options = [
     { value: 'all', label: '所有账户', icon: 'fa-globe' },
@@ -1124,153 +1163,35 @@ const sortedAccounts = computed(() => {
 const loadAccounts = async (forceReload = false) => {
   accountsLoading.value = true
   try {
-    // 检查是否选择了特定分组
-    if (groupFilter.value && groupFilter.value !== 'all' && groupFilter.value !== 'ungrouped') {
-      // 直接调用分组成员接口
-      const response = await apiClient.get(`/admin/account-groups/${groupFilter.value}/members`)
-      if (response.success) {
-        // 分组成员接口已经包含了完整的账户信息，直接使用
-        accounts.value = response.data
-        accountsLoading.value = false
-        return
-      }
-    }
-
-    // 构建查询参数（用于其他筛选情况）
+    // 根据筛选条件构建查询参数
     const params = {}
-    if (platformFilter.value !== 'all') {
-      params.platform = platformFilter.value
-    }
-    if (groupFilter.value === 'ungrouped') {
+    let effectivePlatform = platformFilter.value
+
+    if (groupFilter.value && groupFilter.value !== 'all') {
       params.groupId = groupFilter.value
-    }
 
-    // 根据平台筛选决定需要请求哪些接口
-    const requests = []
-
-    if (platformFilter.value === 'all') {
-      // 请求所有平台
-      requests.push(
-        apiClient.get('/admin/claude-accounts', { params }),
-        apiClient.get('/admin/claude-console-accounts', { params }),
-        apiClient.get('/admin/bedrock-accounts', { params }),
-        apiClient.get('/admin/gemini-accounts', { params }),
-        apiClient.get('/admin/openai-accounts', { params }),
-        apiClient.get('/admin/azure-openai-accounts', { params }),
-        apiClient.get('/admin/openai-responses-accounts', { params }),
-        apiClient.get('/admin/ccr-accounts', { params })
-      )
-    } else {
-      // 只请求指定平台，其他平台设为null占位
-      switch (platformFilter.value) {
-        case 'claude':
-          requests.push(
-            apiClient.get('/admin/claude-accounts', { params }),
-            Promise.resolve({ success: true, data: [] }), // claude-console 占位
-            Promise.resolve({ success: true, data: [] }), // bedrock 占位
-            Promise.resolve({ success: true, data: [] }), // gemini 占位
-            Promise.resolve({ success: true, data: [] }), // openai 占位
-            Promise.resolve({ success: true, data: [] }), // azure-openai 占位
-            Promise.resolve({ success: true, data: [] }) // openai-responses 占位
-          )
-          break
-        case 'claude-console':
-          requests.push(
-            Promise.resolve({ success: true, data: [] }), // claude 占位
-            apiClient.get('/admin/claude-console-accounts', { params }),
-            Promise.resolve({ success: true, data: [] }), // bedrock 占位
-            Promise.resolve({ success: true, data: [] }), // gemini 占位
-            Promise.resolve({ success: true, data: [] }), // openai 占位
-            Promise.resolve({ success: true, data: [] }), // azure-openai 占位
-            Promise.resolve({ success: true, data: [] }) // openai-responses 占位
-          )
-          break
-        case 'bedrock':
-          requests.push(
-            Promise.resolve({ success: true, data: [] }), // claude 占位
-            Promise.resolve({ success: true, data: [] }), // claude-console 占位
-            apiClient.get('/admin/bedrock-accounts', { params }),
-            Promise.resolve({ success: true, data: [] }), // gemini 占位
-            Promise.resolve({ success: true, data: [] }), // openai 占位
-            Promise.resolve({ success: true, data: [] }), // azure-openai 占位
-            Promise.resolve({ success: true, data: [] }) // openai-responses 占位
-          )
-          break
-        case 'gemini':
-          requests.push(
-            Promise.resolve({ success: true, data: [] }), // claude 占位
-            Promise.resolve({ success: true, data: [] }), // claude-console 占位
-            Promise.resolve({ success: true, data: [] }), // bedrock 占位
-            apiClient.get('/admin/gemini-accounts', { params }),
-            Promise.resolve({ success: true, data: [] }), // openai 占位
-            Promise.resolve({ success: true, data: [] }), // azure-openai 占位
-            Promise.resolve({ success: true, data: [] }) // openai-responses 占位
-          )
-          break
-        case 'openai':
-          requests.push(
-            Promise.resolve({ success: true, data: [] }), // claude 占位
-            Promise.resolve({ success: true, data: [] }), // claude-console 占位
-            Promise.resolve({ success: true, data: [] }), // bedrock 占位
-            Promise.resolve({ success: true, data: [] }), // gemini 占位
-            apiClient.get('/admin/openai-accounts', { params }),
-            Promise.resolve({ success: true, data: [] }), // azure-openai 占位
-            Promise.resolve({ success: true, data: [] }) // openai-responses 占位
-          )
-          break
-        case 'azure_openai':
-          requests.push(
-            Promise.resolve({ success: true, data: [] }), // claude 占位
-            Promise.resolve({ success: true, data: [] }), // claude-console 占位
-            Promise.resolve({ success: true, data: [] }), // bedrock 占位
-            Promise.resolve({ success: true, data: [] }), // gemini 占位
-            Promise.resolve({ success: true, data: [] }), // openai 占位
-            apiClient.get('/admin/azure-openai-accounts', { params }),
-            Promise.resolve({ success: true, data: [] }) // openai-responses 占位
-          )
-          break
-        case 'openai-responses':
-          requests.push(
-            Promise.resolve({ success: true, data: [] }), // claude 占位
-            Promise.resolve({ success: true, data: [] }), // claude-console 占位
-            Promise.resolve({ success: true, data: [] }), // bedrock 占位
-            Promise.resolve({ success: true, data: [] }), // gemini 占位
-            Promise.resolve({ success: true, data: [] }), // openai 占位
-            Promise.resolve({ success: true, data: [] }), // azure-openai 占位
-            apiClient.get('/admin/openai-responses-accounts', { params })
-          )
-          break
-        case 'ccr':
-          requests.push(
-            Promise.resolve({ success: true, data: [] }), // claude 占位
-            Promise.resolve({ success: true, data: [] }), // claude-console 占位
-            Promise.resolve({ success: true, data: [] }), // bedrock 占位
-            Promise.resolve({ success: true, data: [] }), // gemini 占位
-            Promise.resolve({ success: true, data: [] }), // openai 占位
-            Promise.resolve({ success: true, data: [] }), // azure 占位
-            apiClient.get('/admin/ccr-accounts', { params })
-          )
-          break
-        default:
-          // 默认情况下返回空数组
-          requests.push(
-            Promise.resolve({ success: true, data: [] }),
-            Promise.resolve({ success: true, data: [] }),
-            Promise.resolve({ success: true, data: [] }),
-            Promise.resolve({ success: true, data: [] }),
-            Promise.resolve({ success: true, data: [] }),
-            Promise.resolve({ success: true, data: [] }),
-            Promise.resolve({ success: true, data: [] })
-          )
-          break
+      // 如果未指定平台筛选，使用分组所属的平台以减少冗余请求
+      if (effectivePlatform === 'all' && groupFilter.value !== 'ungrouped') {
+        const selectedGroup = accountGroups.value.find((group) => group.id === groupFilter.value)
+        if (selectedGroup?.platform) {
+          effectivePlatform = selectedGroup.platform
+        }
       }
     }
+
+    if (effectivePlatform !== 'all') {
+      params.platform = effectivePlatform
+    }
+    const requests = endpointConfigs.map(({ key, url }) => {
+      if (effectivePlatform === 'all' || effectivePlatform === key) {
+        return apiClient.get(url, { params })
+      }
+      return Promise.resolve({ success: true, data: [] })
+    })
 
     // 使用缓存机制加载 API Keys 和分组数据
     await Promise.all([loadApiKeys(forceReload), loadAccountGroups(forceReload)])
-
-    // 后端账户API已经包含分组信息，不需要单独加载分组成员关系
-    // await loadGroupMembers(forceReload)
+    await loadGroupMembers(forceReload)
 
     const [
       claudeData,
@@ -1285,92 +1206,110 @@ const loadAccounts = async (forceReload = false) => {
 
     const allAccounts = []
 
+    const getGroupInfosForAccount = (account) => {
+      if (!account?.id) return []
+      if (account.groupInfos && account.groupInfos.length > 0) {
+        accountGroupMap.value.set(account.id, account.groupInfos)
+        return account.groupInfos
+      }
+      return accountGroupMap.value.get(account.id) || []
+    }
+
     if (claudeData.success) {
-      const claudeAccounts = (claudeData.data || []).map((acc) => {
-        // 计算每个Claude账户绑定的API Key数量
-        const boundApiKeysCount = apiKeys.value.filter(
-          (key) => key.claudeAccountId === acc.id
-        ).length
-        // 后端已经包含了groupInfos，直接使用
-        return { ...acc, platform: 'claude', boundApiKeysCount }
-      })
+      const claudeAccounts = await Promise.all(
+        (claudeData.data || []).map(async (acc) => {
+          const boundApiKeysCount = apiKeys.value.filter(
+            (key) => key.claudeAccountId === acc.id
+          ).length
+          const groupInfos = getGroupInfosForAccount(acc)
+          return { ...acc, platform: 'claude', boundApiKeysCount, groupInfos }
+        })
+      )
       allAccounts.push(...claudeAccounts)
     }
 
     if (claudeConsoleData.success) {
-      const claudeConsoleAccounts = (claudeConsoleData.data || []).map((acc) => {
-        // 计算每个Claude Console账户绑定的API Key数量
-        const boundApiKeysCount = apiKeys.value.filter(
-          (key) => key.claudeConsoleAccountId === acc.id
-        ).length
-        // 后端已经包含了groupInfos，直接使用
-        return { ...acc, platform: 'claude-console', boundApiKeysCount }
-      })
+      const claudeConsoleAccounts = await Promise.all(
+        (claudeConsoleData.data || []).map(async (acc) => {
+          const boundApiKeysCount = apiKeys.value.filter(
+            (key) => key.claudeConsoleAccountId === acc.id
+          ).length
+          const groupInfos = getGroupInfosForAccount(acc)
+          return { ...acc, platform: 'claude-console', boundApiKeysCount, groupInfos }
+        })
+      )
       allAccounts.push(...claudeConsoleAccounts)
     }
 
     if (bedrockData.success) {
-      const bedrockAccounts = (bedrockData.data || []).map((acc) => {
-        // Bedrock账户暂时不支持直接绑定
-        // 后端已经包含了groupInfos，直接使用
-        return { ...acc, platform: 'bedrock', boundApiKeysCount: 0 }
-      })
+      const bedrockAccounts = await Promise.all(
+        (bedrockData.data || []).map(async (acc) => {
+          const groupInfos = getGroupInfosForAccount(acc)
+          return { ...acc, platform: 'bedrock', boundApiKeysCount: 0, groupInfos }
+        })
+      )
       allAccounts.push(...bedrockAccounts)
     }
 
     if (geminiData.success) {
-      const geminiAccounts = (geminiData.data || []).map((acc) => {
-        // 计算每个Gemini账户绑定的API Key数量
-        const boundApiKeysCount = apiKeys.value.filter(
-          (key) => key.geminiAccountId === acc.id
-        ).length
-        // 后端已经包含了groupInfos，直接使用
-        return { ...acc, platform: 'gemini', boundApiKeysCount }
-      })
+      const geminiAccounts = await Promise.all(
+        (geminiData.data || []).map(async (acc) => {
+          const boundApiKeysCount = apiKeys.value.filter(
+            (key) => key.geminiAccountId === acc.id
+          ).length
+          const groupInfos = getGroupInfosForAccount(acc)
+          return { ...acc, platform: 'gemini', boundApiKeysCount, groupInfos }
+        })
+      )
       allAccounts.push(...geminiAccounts)
     }
+
     if (openaiData.success) {
-      const openaiAccounts = (openaiData.data || []).map((acc) => {
-        // 计算每个OpenAI账户绑定的API Key数量
-        const boundApiKeysCount = apiKeys.value.filter(
-          (key) => key.openaiAccountId === acc.id
-        ).length
-        // 后端已经包含了groupInfos，直接使用
-        return { ...acc, platform: 'openai', boundApiKeysCount }
-      })
+      const openaiAccounts = await Promise.all(
+        (openaiData.data || []).map(async (acc) => {
+          const boundApiKeysCount = apiKeys.value.filter(
+            (key) => key.openaiAccountId === acc.id
+          ).length
+          const groupInfos = getGroupInfosForAccount(acc)
+          return { ...acc, platform: 'openai', boundApiKeysCount, groupInfos }
+        })
+      )
       allAccounts.push(...openaiAccounts)
     }
+
     if (azureOpenaiData && azureOpenaiData.success) {
-      const azureOpenaiAccounts = (azureOpenaiData.data || []).map((acc) => {
-        // 计算每个Azure OpenAI账户绑定的API Key数量
-        const boundApiKeysCount = apiKeys.value.filter(
-          (key) => key.azureOpenaiAccountId === acc.id
-        ).length
-        // 后端已经包含了groupInfos，直接使用
-        return { ...acc, platform: 'azure_openai', boundApiKeysCount }
-      })
+      const azureOpenaiAccounts = await Promise.all(
+        (azureOpenaiData.data || []).map(async (acc) => {
+          const boundApiKeysCount = apiKeys.value.filter(
+            (key) => key.azureOpenaiAccountId === acc.id
+          ).length
+          const groupInfos = getGroupInfosForAccount(acc)
+          return { ...acc, platform: 'azure_openai', boundApiKeysCount, groupInfos }
+        })
+      )
       allAccounts.push(...azureOpenaiAccounts)
     }
 
     if (openaiResponsesData && openaiResponsesData.success) {
-      const openaiResponsesAccounts = (openaiResponsesData.data || []).map((acc) => {
-        // 计算每个OpenAI-Responses账户绑定的API Key数量
-        // OpenAI-Responses账户使用 responses: 前缀
-        const boundApiKeysCount = apiKeys.value.filter(
-          (key) => key.openaiAccountId === `responses:${acc.id}`
-        ).length
-        // 后端已经包含了groupInfos，直接使用
-        return { ...acc, platform: 'openai-responses', boundApiKeysCount }
-      })
+      const openaiResponsesAccounts = await Promise.all(
+        (openaiResponsesData.data || []).map(async (acc) => {
+          const boundApiKeysCount = apiKeys.value.filter(
+            (key) => key.openaiAccountId === `responses:${acc.id}`
+          ).length
+          const groupInfos = getGroupInfosForAccount(acc)
+          return { ...acc, platform: 'openai-responses', boundApiKeysCount, groupInfos }
+        })
+      )
       allAccounts.push(...openaiResponsesAccounts)
     }
 
-    // CCR 账户
     if (ccrData && ccrData.success) {
-      const ccrAccounts = (ccrData.data || []).map((acc) => {
-        // CCR 不支持 API Key 绑定，固定为 0
-        return { ...acc, platform: 'ccr', boundApiKeysCount: 0 }
-      })
+      const ccrAccounts = await Promise.all(
+        (ccrData.data || []).map(async (acc) => {
+          const groupInfos = getGroupInfosForAccount(acc)
+          return { ...acc, platform: 'ccr', boundApiKeysCount: 0, groupInfos }
+        })
+      )
       allAccounts.push(...ccrAccounts)
     }
 
@@ -1378,19 +1317,19 @@ const loadAccounts = async (forceReload = false) => {
     let filteredAccounts = allAccounts
     if (groupFilter.value !== 'all') {
       if (groupFilter.value === 'ungrouped') {
-        // 筛选未分组的账户（没有 groupInfos 或 groupInfos 为空数组）
-        filteredAccounts = allAccounts.filter((account) => {
+        const ungrouped = allAccounts.filter((account) => {
           return !account.groupInfos || account.groupInfos.length === 0
         })
+        filteredAccounts = ungrouped.length > 0 ? ungrouped : allAccounts
       } else {
-        // 筛选属于特定分组的账户
-        filteredAccounts = allAccounts.filter((account) => {
+        const byGroupInfo = allAccounts.filter((account) => {
           if (!account.groupInfos || account.groupInfos.length === 0) {
             return false
           }
-          // 检查账户是否属于选中的分组
           return account.groupInfos.some((group) => group.id === groupFilter.value)
         })
+        // 如果后端已经按分组过滤且未返回 groupInfos，则回退到全部列表
+        filteredAccounts = byGroupInfo.length > 0 ? byGroupInfo : allAccounts
       }
     }
 
@@ -1473,6 +1412,45 @@ const loadAccountGroups = async (forceReload = false) => {
     }
   } catch (error) {
     // 静默处理错误
+  }
+}
+
+const loadGroupMembers = async (forceReload = false) => {
+  if (!forceReload && groupMembersLoaded.value) {
+    return
+  }
+
+  accountGroupMap.value.clear()
+
+  if (!accountGroups.value || accountGroups.value.length === 0) {
+    groupMembersLoaded.value = true
+    return
+  }
+
+  try {
+    const groupFetches = accountGroups.value.map(async (group) => {
+      try {
+        const response = await apiClient.get(`/admin/account-groups/${group.id}/members`)
+        if (response.success) {
+          const members = response.data || []
+          members.forEach((member) => {
+            if (!member?.id) return
+
+            const existing = accountGroupMap.value.get(member.id) || []
+            if (!existing.some((g) => g.id === group.id)) {
+              existing.push({ id: group.id, name: group.name, platform: group.platform })
+            }
+            accountGroupMap.value.set(member.id, existing)
+          })
+        }
+      } catch (groupError) {
+        // 忽略单个分组加载失败
+      }
+    })
+
+    await Promise.allSettled(groupFetches)
+  } finally {
+    groupMembersLoaded.value = true
   }
 }
 
