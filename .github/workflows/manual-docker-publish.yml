@@ -70,8 +70,8 @@ jobs:
 
       - name: Validate Docker Hub credentials
         env:
-        DH_USER: ${{ secrets.DOCKERHUB_USERNAME || secrets.DOCKER_USERNAME || 'let5see' }}
-        DH_PASS: ${{ secrets.DOCKERHUB_TOKEN || secrets.DOCKERHUB_PASSWORD || secrets.DOCKER_HUB_TOKEN || secrets.DOCKER_HUB_PASSWORD || secrets.DOCKER_PASSWORD }}
+          DH_USER: ${{ secrets.DOCKERHUB_USERNAME || secrets.DOCKER_USERNAME || 'let5see' }}
+          DH_PASS: ${{ secrets.DOCKERHUB_TOKEN || secrets.DOCKERHUB_PASSWORD || secrets.DOCKER_HUB_TOKEN || secrets.DOCKER_HUB_PASSWORD || secrets.DOCKER_PASSWORD }}
         run: |
           if [ -z "$DH_PASS" ]; then
             echo "::error::Docker Hub token/password secret missing. Please set one of: DOCKERHUB_TOKEN (recommended), DOCKERHUB_PASSWORD, DOCKER_HUB_TOKEN, DOCKER_HUB_PASSWORD."

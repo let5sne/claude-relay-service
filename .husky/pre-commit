@@ -1,5 +1,4 @@
 #!/usr/bin/env sh
-. "$(dirname "$0")/_/husky.sh"
 
 echo "Running lint-staged (Prettier) for staged files..."
 # Run only if lint-staged is available locally; otherwise skip to avoid failing hooks
