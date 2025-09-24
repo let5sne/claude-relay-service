@@ -627,6 +627,233 @@ class RedisClient {
     await Promise.all(operations)
   }
 
+  async incrementAccountKeyUsage(
+    accountId,
+    keyId,
+    {
+      totalTokens = 0,
+      inputTokens = 0,
+      outputTokens = 0,
+      cacheCreateTokens = 0,
+      cacheReadTokens = 0,
+      cost = 0,
+      model = 'unknown'
+    } = {}
+  ) {
+    if (!accountId || !keyId) {
+      return
+    }
+
+    const now = new Date()
+    const today = getDateStringInTimezone(now)
+    const tzDate = getDateInTimezone(now)
+    const currentMonth = `${tzDate.getUTCFullYear()}-${String(tzDate.getUTCMonth() + 1).padStart(
+      2,
+      '0'
+    )}`
+
+    const normalizedModel = this._normalizeModelName(model)
+
+    const baseKey = `account_usage:key:total:${accountId}:${keyId}`
+    const dailyKey = `account_usage:key:daily:${accountId}:${today}:${keyId}`
+    const monthlyKey = `account_usage:key:monthly:${accountId}:${currentMonth}:${keyId}`
+
+    const rankTotalKey = `account_usage:key_rank:total:${accountId}`
+    const rankDailyKey = `account_usage:key_rank:daily:${accountId}:${today}`
+    const rankMonthlyKey = `account_usage:key_rank:monthly:${accountId}:${currentMonth}`
+
+    const payload = {
+      totalTokens: Math.max(0, Math.floor(totalTokens)),
+      inputTokens: Math.max(0, Math.floor(inputTokens)),
+      outputTokens: Math.max(0, Math.floor(outputTokens)),
+      cacheCreateTokens: Math.max(0, Math.floor(cacheCreateTokens)),
+      cacheReadTokens: Math.max(0, Math.floor(cacheReadTokens)),
+      cost: Number(cost) || 0
+    }
+
+    const pipeline = this.client.multi()
+
+    const incrementKey = (key) => {
+      pipeline.hincrby(key, 'requests', 1)
+      pipeline.hincrby(key, 'totalTokens', payload.totalTokens)
+      pipeline.hincrby(key, 'inputTokens', payload.inputTokens)
+      pipeline.hincrby(key, 'outputTokens', payload.outputTokens)
+      pipeline.hincrby(key, 'cacheCreateTokens', payload.cacheCreateTokens)
+      pipeline.hincrby(key, 'cacheReadTokens', payload.cacheReadTokens)
+      pipeline.hset(key, 'updatedAt', now.toISOString())
+      pipeline.hset(key, 'lastModel', normalizedModel)
+      if (payload.cost > 0) {
+        pipeline.hincrbyfloat(key, 'cost', payload.cost)
+      }
+    }
+
+    incrementKey(baseKey)
+    incrementKey(dailyKey)
+    incrementKey(monthlyKey)
+
+    pipeline.expire(dailyKey, 86400 * 32)
+    pipeline.expire(monthlyKey, 86400 * 365)
+
+    if (payload.totalTokens > 0) {
+      pipeline.zincrby(rankTotalKey, payload.totalTokens, keyId)
+      pipeline.zincrby(rankDailyKey, payload.totalTokens, keyId)
+      pipeline.zincrby(rankMonthlyKey, payload.totalTokens, keyId)
+      pipeline.expire(rankDailyKey, 86400 * 32)
+      pipeline.expire(rankMonthlyKey, 86400 * 365)
+    }
+
+    await pipeline.exec()
+  }
+
+  async getAccountKeyUsageBreakdown(
+    accountId,
+    { range = 'total', date = null, month = null, limit = 20, offset = 0, order = 'desc' } = {}
+  ) {
+    if (!accountId) {
+      return {
+        items: [],
+        total: 0,
+        totalTokens: 0,
+        hasMore: false,
+        nextOffset: offset
+      }
+    }
+
+    const now = new Date()
+    const resolvedDate = date || getDateStringInTimezone(now)
+    const tzDate = getDateInTimezone(now)
+    const resolvedMonth =
+      month || `${tzDate.getUTCFullYear()}-${String(tzDate.getUTCMonth() + 1).padStart(2, '0')}`
+
+    let rankKey
+    let statsKey
+    let hashKeyBuilder
+
+    switch (range) {
+      case 'daily':
+        rankKey = `account_usage:key_rank:daily:${accountId}:${resolvedDate}`
+        statsKey = `account_usage:daily:${accountId}:${resolvedDate}`
+        hashKeyBuilder = (keyId) => `account_usage:key:daily:${accountId}:${resolvedDate}:${keyId}`
+        break
+      case 'monthly':
+        rankKey = `account_usage:key_rank:monthly:${accountId}:${resolvedMonth}`
+        statsKey = `account_usage:monthly:${accountId}:${resolvedMonth}`
+        hashKeyBuilder = (keyId) =>
+          `account_usage:key:monthly:${accountId}:${resolvedMonth}:${keyId}`
+        break
+      case 'total':
+      default:
+        rankKey = `account_usage:key_rank:total:${accountId}`
+        statsKey = `account_usage:${accountId}`
+        hashKeyBuilder = (keyId) => `account_usage:key:total:${accountId}:${keyId}`
+        break
+    }
+
+    const [memberCount, rangeStats] = await Promise.all([
+      this.client.zcard(rankKey),
+      this.client.hgetall(statsKey)
+    ])
+
+    if (!memberCount || memberCount <= offset) {
+      return {
+        items: [],
+        total: memberCount || 0,
+        totalTokens: parseInt(rangeStats?.totalAllTokens || rangeStats?.allTokens || 0) || 0,
+        hasMore: false,
+        nextOffset: offset
+      }
+    }
+
+    const start = offset
+    const end = Math.min(offset + Math.max(1, limit) - 1, memberCount - 1)
+
+    const entries = await this.client.zrevrange(rankKey, start, end, 'WITHSCORES')
+
+    const members = []
+    const scores = new Map()
+    for (let i = 0; i < entries.length; i += 2) {
+      const member = entries[i]
+      const score = Number(entries[i + 1]) || 0
+      members.push(member)
+      scores.set(member, score)
+    }
+
+    if (!members.length) {
+      return {
+        items: [],
+        total: memberCount,
+        totalTokens: parseInt(rangeStats?.totalAllTokens || rangeStats?.allTokens || 0) || 0,
+        hasMore: end + 1 < memberCount,
+        nextOffset: end + 1
+      }
+    }
+
+    const pipeline = this.client.multi()
+    members.forEach((member) => {
+      pipeline.hgetall(hashKeyBuilder(member))
+    })
+    const results = await pipeline.exec()
+
+    const normalizeNumber = (value) => {
+      const num = Number(value)
+      return Number.isFinite(num) ? num : 0
+    }
+
+    const normalizedOrder = order === 'asc' ? 'asc' : 'desc'
+
+    const items = members
+      .map((member, index) => {
+        const [, hash] = results[index] || []
+        const data = hash || {}
+        const requests = parseInt(data.requests) || 0
+        const totalTokens = scores.get(member) || parseInt(data.totalTokens) || 0
+        const inputTokens = parseInt(data.inputTokens) || 0
+        const outputTokens = parseInt(data.outputTokens) || 0
+        const cacheCreateTokens = parseInt(data.cacheCreateTokens) || 0
+        const cacheReadTokens = parseInt(data.cacheReadTokens) || 0
+        const cost = normalizeNumber(data.cost)
+
+        return {
+          keyId: member,
+          requests,
+          totalTokens,
+          inputTokens,
+          outputTokens,
+          cacheCreateTokens,
+          cacheReadTokens,
+          cost,
+          updatedAt: data.updatedAt || null,
+          lastModel: data.lastModel || null
+        }
+      })
+      .sort((a, b) => {
+        // Ensure deterministic order when scores tie or hash missing
+        if (normalizedOrder === 'asc') {
+          if (a.totalTokens !== b.totalTokens) {
+            return a.totalTokens - b.totalTokens
+          }
+          return a.keyId.localeCompare(b.keyId)
+        }
+        if (a.totalTokens !== b.totalTokens) {
+          return b.totalTokens - a.totalTokens
+        }
+        return a.keyId.localeCompare(b.keyId)
+      })
+
+    const totalTokensRange = parseInt(rangeStats?.totalAllTokens || rangeStats?.allTokens || 0) || 0
+
+    const hasMore = end + 1 < memberCount
+    const nextOffset = hasMore ? end + 1 : memberCount
+
+    return {
+      items,
+      total: memberCount,
+      totalTokens: totalTokensRange,
+      hasMore,
+      nextOffset
+    }
+  }
+
   async getUsageStats(keyId) {
     const totalKey = `usage:${keyId}`
     const today = getDateStringInTimezone()
