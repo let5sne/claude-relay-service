@@ -317,7 +317,7 @@
                 type="number"
               />
               <p class="text-xs text-gray-500 dark:text-gray-400">
-                针对该 API Key 的累计费用限制；达到后将拒绝后续请求，0 或留空表示无限制
+                设置此 API Key 的累计总费用限制，达到限制后将拒绝所有后续请求，0 或留空表示无限制
               </p>
             </div>
           </div>

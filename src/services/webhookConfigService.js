@@ -63,6 +63,7 @@ class WebhookConfigService {
         'feishu',
         'slack',
         'discord',
+        'telegram',
         'custom',
         'bark',
         'smtp'
@@ -73,10 +74,11 @@ class WebhookConfigService {
           throw new Error(`不支持的平台类型: ${platform.type}`)
         }
 
-        // Bark和SMTP平台不使用标准URL
-        if (platform.type !== 'bark' && platform.type !== 'smtp') {
-          if (!platform.url) {
-            throw new Error('webhook URL 不能为空')
+        // Bark、SMTP、Telegram 平台不使用标准URL
+        const requiresUrl = !['bark', 'smtp', 'telegram'].includes(platform.type)
+        if (requiresUrl) {
+          if (!platform.url || !this.isValidUrl(platform.url)) {
+            throw new Error(`无效的webhook URL: ${platform.url}`)
           }
           // 使用更严格的校验，拒绝内网/本地/非 http(s) URL
           inputValidator.validateWebhookUrl(platform.url)
@@ -118,6 +120,43 @@ class WebhookConfigService {
         // Discord webhook URL格式检查
         if (!platform.url.includes('discord.com/api/webhooks')) {
           logger.warn('⚠️ Discord webhook URL格式可能不正确')
+        }
+        break
+      case 'telegram':
+        if (!platform.botToken) {
+          throw new Error('Telegram 平台必须提供机器人 Token')
+        }
+        if (!platform.chatId) {
+          throw new Error('Telegram 平台必须提供 Chat ID')
+        }
+
+        if (!platform.botToken.includes(':')) {
+          logger.warn('⚠️ Telegram 机器人 Token 格式可能不正确')
+        }
+
+        if (!/^[-\d]+$/.test(String(platform.chatId))) {
+          logger.warn('⚠️ Telegram Chat ID 应该是数字，如为频道请确认已获取正确ID')
+        }
+
+        if (platform.apiBaseUrl) {
+          if (!this.isValidUrl(platform.apiBaseUrl)) {
+            throw new Error('Telegram API 基础地址格式无效')
+          }
+          const { protocol } = new URL(platform.apiBaseUrl)
+          if (!['http:', 'https:'].includes(protocol)) {
+            throw new Error('Telegram API 基础地址仅支持 http 或 https 协议')
+          }
+        }
+
+        if (platform.proxyUrl) {
+          if (!this.isValidUrl(platform.proxyUrl)) {
+            throw new Error('Telegram 代理地址格式无效')
+          }
+          const proxyProtocol = new URL(platform.proxyUrl).protocol
+          const supportedProtocols = ['http:', 'https:', 'socks4:', 'socks4a:', 'socks5:']
+          if (!supportedProtocols.includes(proxyProtocol)) {
+            throw new Error('Telegram 代理仅支持 http/https/socks 协议')
+          }
         }
         break
       case 'custom':

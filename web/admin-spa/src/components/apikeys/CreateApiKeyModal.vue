@@ -329,7 +329,7 @@
                 step="0.01"
                 type="number"
               />
-              <p class="text-xs text-gray-500 dark:text-gray-400">
+              <p class="dark:text灰-400 text-xs text-gray-500">
                 设置此 API Key 每日的费用限制，超过限制将拒绝请求，0 或留空表示无限制
               </p>
             </div>
@@ -379,10 +379,10 @@
                 type="number"
               />
               <p class="text-xs text-gray-500 dark:text-gray-400">
-                针对该 API Key 的累计费用限制；达到后将拒绝后续请求，0 或留空表示无限制
+                设置此 API Key 的累计总费用限制，达到限制后将拒绝所有后续请求，0 或留空表示无限制
               </p>
               <p class="text-xs text-gray-500 dark:text-gray-400">
-                批量创建时，此上限将应用到每个新建的 API Key。
+                批量创建时，此上限同样会应用到每个新建的 API Key。
               </p>
             </div>
           </div>

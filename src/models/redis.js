@@ -20,7 +20,9 @@ function getDateInTimezone(date = new Date()) {
 function getDateStringInTimezone(date = new Date()) {
   const tzDate = getDateInTimezone(date)
   // 使用UTC方法获取偏移后的日期部分
-  return `${tzDate.getUTCFullYear()}-${String(tzDate.getUTCMonth() + 1).padStart(2, '0')}-${String(tzDate.getUTCDate()).padStart(2, '0')}`
+  return `${tzDate.getUTCFullYear()}-${String(tzDate.getUTCMonth() + 1).padStart(2, '0')}-${String(
+    tzDate.getUTCDate()
+  ).padStart(2, '0')}`
 }
 
 // 获取配置时区的小时 (0-23)
@@ -292,7 +294,10 @@ class RedisClient {
     const now = new Date()
     const today = getDateStringInTimezone(now)
     const tzDate = getDateInTimezone(now)
-    const currentMonth = `${tzDate.getUTCFullYear()}-${String(tzDate.getUTCMonth() + 1).padStart(2, '0')}`
+    const currentMonth = `${tzDate.getUTCFullYear()}-${String(tzDate.getUTCMonth() + 1).padStart(
+      2,
+      '0'
+    )}`
     const currentHour = `${today}:${String(getHourInTimezone(now)).padStart(2, '0')}` // 新增小时级别
 
     const daily = `usage:daily:${keyId}:${today}`
@@ -487,7 +492,10 @@ class RedisClient {
     const now = new Date()
     const today = getDateStringInTimezone(now)
     const tzDate = getDateInTimezone(now)
-    const currentMonth = `${tzDate.getUTCFullYear()}-${String(tzDate.getUTCMonth() + 1).padStart(2, '0')}`
+    const currentMonth = `${tzDate.getUTCFullYear()}-${String(tzDate.getUTCMonth() + 1).padStart(
+      2,
+      '0'
+    )}`
     const currentHour = `${today}:${String(getHourInTimezone(now)).padStart(2, '0')}`
 
     // 账户级别统计的键
@@ -624,7 +632,10 @@ class RedisClient {
     const today = getDateStringInTimezone()
     const dailyKey = `usage:daily:${keyId}:${today}`
     const tzDate = getDateInTimezone()
-    const currentMonth = `${tzDate.getUTCFullYear()}-${String(tzDate.getUTCMonth() + 1).padStart(2, '0')}`
+    const currentMonth = `${tzDate.getUTCFullYear()}-${String(tzDate.getUTCMonth() + 1).padStart(
+      2,
+      '0'
+    )}`
     const monthlyKey = `usage:monthly:${keyId}:${currentMonth}`
 
     const [total, daily, monthly] = await Promise.all([
@@ -709,6 +720,48 @@ class RedisClient {
     }
   }
 
+  async addUsageRecord(keyId, record, maxRecords = 200) {
+    const listKey = `usage:records:${keyId}`
+    const client = this.getClientSafe()
+
+    try {
+      await client
+        .multi()
+        .lpush(listKey, JSON.stringify(record))
+        .ltrim(listKey, 0, Math.max(0, maxRecords - 1))
+        .expire(listKey, 86400 * 90) // 默认保留90天
+        .exec()
+    } catch (error) {
+      logger.error(`❌ Failed to append usage record for key ${keyId}:`, error)
+    }
+  }
+
+  async getUsageRecords(keyId, limit = 50) {
+    const listKey = `usage:records:${keyId}`
+    const client = this.getClient()
+
+    if (!client) {
+      return []
+    }
+
+    try {
+      const rawRecords = await client.lrange(listKey, 0, Math.max(0, limit - 1))
+      return rawRecords
+        .map((entry) => {
+          try {
+            return JSON.parse(entry)
+          } catch (error) {
+            logger.warn('⚠️ Failed to parse usage record entry:', error)
+            return null
+          }
+        })
+        .filter(Boolean)
+    } catch (error) {
+      logger.error(`❌ Failed to load usage records for key ${keyId}:`, error)
+      return []
+    }
+  }
+
   // 💰 获取当日费用
   async getDailyCost(keyId) {
     const today = getDateStringInTimezone()
@@ -725,7 +778,10 @@ class RedisClient {
   async incrementDailyCost(keyId, amount) {
     const today = getDateStringInTimezone()
     const tzDate = getDateInTimezone()
-    const currentMonth = `${tzDate.getUTCFullYear()}-${String(tzDate.getUTCMonth() + 1).padStart(2, '0')}`
+    const currentMonth = `${tzDate.getUTCFullYear()}-${String(tzDate.getUTCMonth() + 1).padStart(
+      2,
+      '0'
+    )}`
     const currentHour = `${today}:${String(getHourInTimezone(new Date())).padStart(2, '0')}`
 
     const dailyKey = `usage:cost:daily:${keyId}:${today}`
@@ -755,7 +811,10 @@ class RedisClient {
   async getCostStats(keyId) {
     const today = getDateStringInTimezone()
     const tzDate = getDateInTimezone()
-    const currentMonth = `${tzDate.getUTCFullYear()}-${String(tzDate.getUTCMonth() + 1).padStart(2, '0')}`
+    const currentMonth = `${tzDate.getUTCFullYear()}-${String(tzDate.getUTCMonth() + 1).padStart(
+      2,
+      '0'
+    )}`
     const currentHour = `${today}:${String(getHourInTimezone(new Date())).padStart(2, '0')}`
 
     const [daily, monthly, hourly, total] = await Promise.all([
@@ -858,7 +917,10 @@ class RedisClient {
     const today = getDateStringInTimezone()
     const accountDailyKey = `account_usage:daily:${accountId}:${today}`
     const tzDate = getDateInTimezone()
-    const currentMonth = `${tzDate.getUTCFullYear()}-${String(tzDate.getUTCMonth() + 1).padStart(2, '0')}`
+    const currentMonth = `${tzDate.getUTCFullYear()}-${String(tzDate.getUTCMonth() + 1).padStart(
+      2,
+      '0'
+    )}`
     const accountMonthlyKey = `account_usage:monthly:${accountId}:${currentMonth}`
 
     const [total, daily, monthly] = await Promise.all([
@@ -1494,14 +1556,18 @@ class RedisClient {
       if (remainingTTL < renewalThreshold) {
         await this.client.expire(key, fullTTL)
         logger.debug(
-          `🔄 Renewed sticky session TTL: ${sessionHash} (was ${Math.round(remainingTTL / 60)}min, renewed to ${ttlHours}h)`
+          `🔄 Renewed sticky session TTL: ${sessionHash} (was ${Math.round(
+            remainingTTL / 60
+          )}min, renewed to ${ttlHours}h)`
         )
         return true
       }
 
       // 剩余时间充足，无需续期
       logger.debug(
-        `✅ Sticky session TTL sufficient: ${sessionHash} (remaining ${Math.round(remainingTTL / 60)}min)`
+        `✅ Sticky session TTL sufficient: ${sessionHash} (remaining ${Math.round(
+          remainingTTL / 60
+        )}min)`
       )
       return true
     } catch (error) {

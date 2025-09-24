@@ -143,12 +143,12 @@
             >
             <span class="text-xs text-gray-500 dark:text-gray-400 md:text-sm">
               <span v-if="statsData.limits.totalCostLimit > 0">
-                ${{ (statsData.usage.total.cost || 0).toFixed(4) }} / ${{
+                ${{ getCurrentTotalCost().toFixed(4) }} / ${{
                   statsData.limits.totalCostLimit.toFixed(2)
                 }}
               </span>
               <span v-else class="flex items-center gap-1">
-                ${{ (statsData.usage.total.cost || 0).toFixed(4) }} / <i class="fas fa-infinity" />
+                ${{ getCurrentTotalCost().toFixed(4) }} / <i class="fas fa-infinity" />
               </span>
             </span>
           </div>
@@ -163,7 +163,28 @@
             />
           </div>
           <div v-else class="h-2 w-full rounded-full bg-gray-200">
-            <div class="h-2 rounded-full bg-green-500" style="width: 0%" />
+            <div class="h-2 rounded-full bg-blue-500" style="width: 0%" />
+          </div>
+        </div>
+
+        <!-- Opus 模型周费用限制 -->
+        <div v-if="statsData.limits.weeklyOpusCostLimit > 0">
+          <div class="mb-2 flex items-center justify-between">
+            <span class="text-sm font-medium text-gray-600 dark:text-gray-400 md:text-base"
+              >Opus 模型周费用限制</span
+            >
+            <span class="text-xs text-gray-500 dark:text-gray-400 md:text-sm">
+              ${{ statsData.limits.weeklyOpusCost.toFixed(4) }} / ${{
+                statsData.limits.weeklyOpusCostLimit.toFixed(2)
+              }}
+            </span>
+          </div>
+          <div class="h-2 w-full rounded-full bg-gray-200 dark:bg-gray-700">
+            <div
+              class="h-2 rounded-full transition-all duration-300"
+              :class="getOpusWeeklyCostProgressColor()"
+              :style="{ width: getOpusWeeklyCostProgress() + '%' }"
+            />
           </div>
         </div>
 
@@ -366,12 +387,32 @@ const getDailyCostProgressColor = () => {
   return 'bg-green-500'
 }
 
+const toNumber = (value) => {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = parseFloat(value)
+    return Number.isFinite(parsed) ? parsed : 0
+  }
+  return 0
+}
+
+const getCurrentTotalCost = () => {
+  const current = statsData.value?.limits?.currentTotalCost
+  if (current !== undefined && current !== null && current !== '') {
+    const parsedCurrent = toNumber(current)
+    if (parsedCurrent || parsedCurrent === 0) return parsedCurrent
+  }
+  return toNumber(statsData.value?.usage?.total?.cost)
+}
+
 // 获取总费用进度
 const getTotalCostProgress = () => {
   if (!statsData.value.limits.totalCostLimit || statsData.value.limits.totalCostLimit === 0)
     return 0
-  const used = statsData.value?.usage?.total?.cost || 0
-  const percentage = (used / statsData.value.limits.totalCostLimit) * 100
+  const used = getCurrentTotalCost()
+  const limit = toNumber(statsData.value.limits.totalCostLimit)
+  if (limit === 0) return 0
+  const percentage = (used / limit) * 100
   return Math.min(percentage, 100)
 }
 
@@ -380,7 +421,27 @@ const getTotalCostProgressColor = () => {
   const progress = getTotalCostProgress()
   if (progress >= 100) return 'bg-red-500'
   if (progress >= 80) return 'bg-yellow-500'
-  return 'bg-green-500'
+  return 'bg-blue-500'
+}
+
+// 获取Opus周费用进度
+const getOpusWeeklyCostProgress = () => {
+  if (
+    !statsData.value.limits.weeklyOpusCostLimit ||
+    statsData.value.limits.weeklyOpusCostLimit === 0
+  )
+    return 0
+  const percentage =
+    (statsData.value.limits.weeklyOpusCost / statsData.value.limits.weeklyOpusCostLimit) * 100
+  return Math.min(percentage, 100)
+}
+
+// 获取Opus周费用进度条颜色
+const getOpusWeeklyCostProgressColor = () => {
+  const progress = getOpusWeeklyCostProgress()
+  if (progress >= 100) return 'bg-red-500'
+  if (progress >= 80) return 'bg-yellow-500'
+  return 'bg-indigo-500' // 使用紫色表示Opus模型
 }
 
 // 格式化数字

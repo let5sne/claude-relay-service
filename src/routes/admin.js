@@ -155,7 +155,10 @@ router.get('/api-keys', authenticateAdmin, async (req, res) => {
       const currentDate = new Date(start)
       while (currentDate <= end) {
         const tzDate = redisClient.getDateInTimezone(currentDate)
-        const dateStr = `${tzDate.getUTCFullYear()}-${String(tzDate.getUTCMonth() + 1).padStart(2, '0')}-${String(tzDate.getUTCDate()).padStart(2, '0')}`
+        const dateStr = `${tzDate.getUTCFullYear()}-${String(tzDate.getUTCMonth() + 1).padStart(
+          2,
+          '0'
+        )}-${String(tzDate.getUTCDate()).padStart(2, '0')}`
         searchPatterns.push(`usage:daily:*:${dateStr}`)
         currentDate.setDate(currentDate.getDate() + 1)
       }
@@ -163,7 +166,10 @@ router.get('/api-keys', authenticateAdmin, async (req, res) => {
       // 今日 - 使用时区日期
       const redisClient = require('../models/redis')
       const tzDate = redisClient.getDateInTimezone(now)
-      const dateStr = `${tzDate.getUTCFullYear()}-${String(tzDate.getUTCMonth() + 1).padStart(2, '0')}-${String(tzDate.getUTCDate()).padStart(2, '0')}`
+      const dateStr = `${tzDate.getUTCFullYear()}-${String(tzDate.getUTCMonth() + 1).padStart(
+        2,
+        '0'
+      )}-${String(tzDate.getUTCDate()).padStart(2, '0')}`
       searchPatterns.push(`usage:daily:*:${dateStr}`)
     } else if (timeRange === '7days') {
       // 最近7天
@@ -172,14 +178,20 @@ router.get('/api-keys', authenticateAdmin, async (req, res) => {
         const date = new Date(now)
         date.setDate(date.getDate() - i)
         const tzDate = redisClient.getDateInTimezone(date)
-        const dateStr = `${tzDate.getUTCFullYear()}-${String(tzDate.getUTCMonth() + 1).padStart(2, '0')}-${String(tzDate.getUTCDate()).padStart(2, '0')}`
+        const dateStr = `${tzDate.getUTCFullYear()}-${String(tzDate.getUTCMonth() + 1).padStart(
+          2,
+          '0'
+        )}-${String(tzDate.getUTCDate()).padStart(2, '0')}`
         searchPatterns.push(`usage:daily:*:${dateStr}`)
       }
     } else if (timeRange === 'monthly') {
       // 本月
       const redisClient = require('../models/redis')
       const tzDate = redisClient.getDateInTimezone(now)
-      const currentMonth = `${tzDate.getUTCFullYear()}-${String(tzDate.getUTCMonth() + 1).padStart(2, '0')}`
+      const currentMonth = `${tzDate.getUTCFullYear()}-${String(tzDate.getUTCMonth() + 1).padStart(
+        2,
+        '0'
+      )}`
       searchPatterns.push(`usage:monthly:*:${currentMonth}`)
     }
 
@@ -302,7 +314,10 @@ router.get('/api-keys', authenticateAdmin, async (req, res) => {
         const redisClient = require('../models/redis')
         const tzToday = redisClient.getDateStringInTimezone(now)
         const tzDate = redisClient.getDateInTimezone(now)
-        const tzMonth = `${tzDate.getUTCFullYear()}-${String(tzDate.getUTCMonth() + 1).padStart(2, '0')}`
+        const tzMonth = `${tzDate.getUTCFullYear()}-${String(tzDate.getUTCMonth() + 1).padStart(
+          2,
+          '0'
+        )}`
 
         let modelKeys = []
         if (timeRange === 'custom' && startDate && endDate) {
@@ -313,7 +328,9 @@ router.get('/api-keys', authenticateAdmin, async (req, res) => {
 
           while (currentDate <= end) {
             const tzDateForKey = redisClient.getDateInTimezone(currentDate)
-            const dateStr = `${tzDateForKey.getUTCFullYear()}-${String(tzDateForKey.getUTCMonth() + 1).padStart(2, '0')}-${String(tzDateForKey.getUTCDate()).padStart(2, '0')}`
+            const dateStr = `${tzDateForKey.getUTCFullYear()}-${String(
+              tzDateForKey.getUTCMonth() + 1
+            ).padStart(2, '0')}-${String(tzDateForKey.getUTCDate()).padStart(2, '0')}`
             const dayKeys = await client.keys(`usage:${apiKey.id}:model:daily:*:${dateStr}`)
             modelKeys = modelKeys.concat(dayKeys)
             currentDate.setDate(currentDate.getDate() + 1)
@@ -472,29 +489,22 @@ router.get('/api-keys', authenticateAdmin, async (req, res) => {
   }
 })
 
-// 获取支持的客户端列表
+// 获取支持的客户端列表（使用新的验证器）
 router.get('/supported-clients', authenticateAdmin, async (req, res) => {
   try {
-    // 检查配置是否存在，如果不存在则使用默认值
-    const predefinedClients = config.clientRestrictions?.predefinedClients || [
-      {
-        id: 'claude_code',
-        name: 'ClaudeCode',
-        description: 'Official Claude Code CLI'
-      },
-      {
-        id: 'gemini_cli',
-        name: 'Gemini-CLI',
-        description: 'Gemini Command Line Interface'
-      }
-    ]
+    // 使用新的 ClientValidator 获取所有可用客户端
+    const ClientValidator = require('../validators/clientValidator')
+    const availableClients = ClientValidator.getAvailableClients()
 
-    const clients = predefinedClients.map((client) => ({
+    // 格式化返回数据
+    const clients = availableClients.map((client) => ({
       id: client.id,
       name: client.name,
-      description: client.description
+      description: client.description,
+      icon: client.icon
     }))
 
+    logger.info(`📱 Returning ${clients.length} supported clients`)
     return res.json({ success: true, data: clients })
   } catch (error) {
     logger.error('❌ Failed to get supported clients:', error)
@@ -636,6 +646,15 @@ router.post('/api-keys', authenticateAdmin, async (req, res) => {
 
     if (tags && tags.some((tag) => typeof tag !== 'string' || tag.trim().length === 0)) {
       return res.status(400).json({ error: 'All tags must be non-empty strings' })
+    }
+
+    if (
+      totalCostLimit !== undefined &&
+      totalCostLimit !== null &&
+      totalCostLimit !== '' &&
+      (Number.isNaN(Number(totalCostLimit)) || Number(totalCostLimit) < 0)
+    ) {
+      return res.status(400).json({ error: 'Total cost limit must be a non-negative number' })
     }
 
     // 验证激活相关字段
@@ -1039,6 +1058,7 @@ router.put('/api-keys/:keyId', authenticateAdmin, async (req, res) => {
       allowedClients,
       expiresAt,
       dailyCostLimit,
+      totalCostLimit,
       weeklyOpusCostLimit,
       tags,
       ownerId // 新增：所有者ID字段
@@ -1196,6 +1216,14 @@ router.put('/api-keys/:keyId', authenticateAdmin, async (req, res) => {
       updates.dailyCostLimit = costLimit
     }
 
+    if (totalCostLimit !== undefined && totalCostLimit !== null && totalCostLimit !== '') {
+      const costLimit = Number(totalCostLimit)
+      if (isNaN(costLimit) || costLimit < 0) {
+        return res.status(400).json({ error: 'Total cost limit must be a non-negative number' })
+      }
+      updates.totalCostLimit = costLimit
+    }
+
     // 处理 Opus 周费用限制
     if (
       weeklyOpusCostLimit !== undefined &&
@@ -1306,7 +1334,9 @@ router.patch('/api-keys/:keyId/expiration', authenticateAdmin, async (req, res) 
         updates.expiresAt = newExpiresAt.toISOString()
 
         logger.success(
-          `🔓 API key manually activated by admin: ${keyId} (${keyData.name}), expires at ${newExpiresAt.toISOString()}`
+          `🔓 API key manually activated by admin: ${keyId} (${
+            keyData.name
+          }), expires at ${newExpiresAt.toISOString()}`
         )
       } else {
         return res.status(400).json({
@@ -1371,7 +1401,11 @@ router.delete('/api-keys/batch', authenticateAdmin, async (req, res) => {
     // 参数验证
     if (!keyIds || !Array.isArray(keyIds) || keyIds.length === 0) {
       logger.warn(
-        `🚨 Invalid keyIds: ${JSON.stringify({ keyIds, type: typeof keyIds, isArray: Array.isArray(keyIds) })}`
+        `🚨 Invalid keyIds: ${JSON.stringify({
+          keyIds,
+          type: typeof keyIds,
+          isArray: Array.isArray(keyIds)
+        })}`
       )
       return res.status(400).json({
         error: 'Invalid request',
@@ -2269,6 +2303,9 @@ router.delete('/claude-accounts/:accountId', authenticateAdmin, async (req, res)
   try {
     const { accountId } = req.params
 
+    // 自动解绑所有绑定的 API Keys
+    const unboundCount = await apiKeyService.unbindAccountFromAllKeys(accountId, 'claude')
+
     // 获取账户信息以检查是否在分组中
     const account = await claudeAccountService.getAccount(accountId)
     if (account && account.accountType === 'group') {
@@ -2280,8 +2317,17 @@ router.delete('/claude-accounts/:accountId', authenticateAdmin, async (req, res)
 
     await claudeAccountService.deleteAccount(accountId)
 
-    logger.success(`🗑️ Admin deleted Claude account: ${accountId}`)
-    return res.json({ success: true, message: 'Claude account deleted successfully' })
+    let message = 'Claude账号已成功删除'
+    if (unboundCount > 0) {
+      message += `，${unboundCount} 个 API Key 已切换为共享池模式`
+    }
+
+    logger.success(`🗑️ Admin deleted Claude account: ${accountId}, unbound ${unboundCount} keys`)
+    return res.json({
+      success: true,
+      message,
+      unboundKeys: unboundCount
+    })
   } catch (error) {
     logger.error('❌ Failed to delete Claude account:', error)
     return res
@@ -2392,7 +2438,9 @@ router.put(
       }
 
       logger.success(
-        `🔄 Admin toggled Claude account schedulable status: ${accountId} -> ${newSchedulable ? 'schedulable' : 'not schedulable'}`
+        `🔄 Admin toggled Claude account schedulable status: ${accountId} -> ${
+          newSchedulable ? 'schedulable' : 'not schedulable'
+        }`
       )
       return res.json({ success: true, schedulable: newSchedulable })
     } catch (error) {
@@ -2645,6 +2693,9 @@ router.delete('/claude-console-accounts/:accountId', authenticateAdmin, async (r
   try {
     const { accountId } = req.params
 
+    // 自动解绑所有绑定的 API Keys
+    const unboundCount = await apiKeyService.unbindAccountFromAllKeys(accountId, 'claude-console')
+
     // 获取账户信息以检查是否在分组中
     const account = await claudeConsoleAccountService.getAccount(accountId)
     if (account && account.accountType === 'group') {
@@ -2656,8 +2707,19 @@ router.delete('/claude-console-accounts/:accountId', authenticateAdmin, async (r
 
     await claudeConsoleAccountService.deleteAccount(accountId)
 
-    logger.success(`🗑️ Admin deleted Claude Console account: ${accountId}`)
-    return res.json({ success: true, message: 'Claude Console account deleted successfully' })
+    let message = 'Claude Console账号已成功删除'
+    if (unboundCount > 0) {
+      message += `，${unboundCount} 个 API Key 已切换为共享池模式`
+    }
+
+    logger.success(
+      `🗑️ Admin deleted Claude Console account: ${accountId}, unbound ${unboundCount} keys`
+    )
+    return res.json({
+      success: true,
+      message,
+      unboundKeys: unboundCount
+    })
   } catch (error) {
     logger.error('❌ Failed to delete Claude Console account:', error)
     return res
@@ -2680,7 +2742,9 @@ router.put('/claude-console-accounts/:accountId/toggle', authenticateAdmin, asyn
     await claudeConsoleAccountService.updateAccount(accountId, { isActive: newStatus })
 
     logger.success(
-      `🔄 Admin toggled Claude Console account status: ${accountId} -> ${newStatus ? 'active' : 'inactive'}`
+      `🔄 Admin toggled Claude Console account status: ${accountId} -> ${
+        newStatus ? 'active' : 'inactive'
+      }`
     )
     return res.json({ success: true, isActive: newStatus })
   } catch (error) {
@@ -2721,7 +2785,9 @@ router.put(
       }
 
       logger.success(
-        `🔄 Admin toggled Claude Console account schedulable status: ${accountId} -> ${newSchedulable ? 'schedulable' : 'not schedulable'}`
+        `🔄 Admin toggled Claude Console account schedulable status: ${accountId} -> ${
+          newSchedulable ? 'schedulable' : 'not schedulable'
+        }`
       )
       return res.json({ success: true, schedulable: newSchedulable })
     } catch (error) {
@@ -3035,6 +3101,9 @@ router.delete('/ccr-accounts/:accountId', authenticateAdmin, async (req, res) =>
   try {
     const { accountId } = req.params
 
+    // 尝试自动解绑（CCR账户实际上不会绑定API Key，但保持代码一致性）
+    const unboundCount = await apiKeyService.unbindAccountFromAllKeys(accountId, 'ccr')
+
     // 获取账户信息以检查是否在分组中
     const account = await ccrAccountService.getAccount(accountId)
     if (account && account.accountType === 'group') {
@@ -3046,8 +3115,18 @@ router.delete('/ccr-accounts/:accountId', authenticateAdmin, async (req, res) =>
 
     await ccrAccountService.deleteAccount(accountId)
 
+    let message = 'CCR账号已成功删除'
+    if (unboundCount > 0) {
+      // 理论上不会发生，但保持消息格式一致
+      message += `，${unboundCount} 个 API Key 已切换为共享池模式`
+    }
+
     logger.success(`🗑️ Admin deleted CCR account: ${accountId}`)
-    return res.json({ success: true, message: 'CCR account deleted successfully' })
+    return res.json({
+      success: true,
+      message,
+      unboundKeys: unboundCount
+    })
   } catch (error) {
     logger.error('❌ Failed to delete CCR account:', error)
     return res.status(500).json({ error: 'Failed to delete CCR account', message: error.message })
@@ -3106,7 +3185,9 @@ router.put('/ccr-accounts/:accountId/toggle-schedulable', authenticateAdmin, asy
     }
 
     logger.success(
-      `🔄 Admin toggled CCR account schedulable status: ${accountId} -> ${newSchedulable ? 'schedulable' : 'not schedulable'}`
+      `🔄 Admin toggled CCR account schedulable status: ${accountId} -> ${
+        newSchedulable ? 'schedulable' : 'not schedulable'
+      }`
     )
     return res.json({ success: true, schedulable: newSchedulable })
   } catch (error) {
@@ -3389,6 +3470,9 @@ router.delete('/bedrock-accounts/:accountId', authenticateAdmin, async (req, res
   try {
     const { accountId } = req.params
 
+    // 自动解绑所有绑定的 API Keys
+    const unboundCount = await apiKeyService.unbindAccountFromAllKeys(accountId, 'bedrock')
+
     const result = await bedrockAccountService.deleteAccount(accountId)
 
     if (!result.success) {
@@ -3397,8 +3481,17 @@ router.delete('/bedrock-accounts/:accountId', authenticateAdmin, async (req, res
         .json({ error: 'Failed to delete Bedrock account', message: result.error })
     }
 
-    logger.success(`🗑️ Admin deleted Bedrock account: ${accountId}`)
-    return res.json({ success: true, message: 'Bedrock account deleted successfully' })
+    let message = 'Bedrock账号已成功删除'
+    if (unboundCount > 0) {
+      message += `，${unboundCount} 个 API Key 已切换为共享池模式`
+    }
+
+    logger.success(`🗑️ Admin deleted Bedrock account: ${accountId}, unbound ${unboundCount} keys`)
+    return res.json({
+      success: true,
+      message,
+      unboundKeys: unboundCount
+    })
   } catch (error) {
     logger.error('❌ Failed to delete Bedrock account:', error)
     return res
@@ -3429,7 +3522,9 @@ router.put('/bedrock-accounts/:accountId/toggle', authenticateAdmin, async (req,
     }
 
     logger.success(
-      `🔄 Admin toggled Bedrock account status: ${accountId} -> ${newStatus ? 'active' : 'inactive'}`
+      `🔄 Admin toggled Bedrock account status: ${accountId} -> ${
+        newStatus ? 'active' : 'inactive'
+      }`
     )
     return res.json({ success: true, isActive: newStatus })
   } catch (error) {
@@ -3478,7 +3573,9 @@ router.put(
       }
 
       logger.success(
-        `🔄 Admin toggled Bedrock account schedulable status: ${accountId} -> ${newSchedulable ? 'schedulable' : 'not schedulable'}`
+        `🔄 Admin toggled Bedrock account schedulable status: ${accountId} -> ${
+          newSchedulable ? 'schedulable' : 'not schedulable'
+        }`
       )
       return res.json({ success: true, schedulable: newSchedulable })
     } catch (error) {
@@ -3831,6 +3928,9 @@ router.delete('/gemini-accounts/:accountId', authenticateAdmin, async (req, res)
   try {
     const { accountId } = req.params
 
+    // 自动解绑所有绑定的 API Keys
+    const unboundCount = await apiKeyService.unbindAccountFromAllKeys(accountId, 'gemini')
+
     // 获取账户信息以检查是否在分组中
     const account = await geminiAccountService.getAccount(accountId)
     if (account && account.accountType === 'group') {
@@ -3842,8 +3942,17 @@ router.delete('/gemini-accounts/:accountId', authenticateAdmin, async (req, res)
 
     await geminiAccountService.deleteAccount(accountId)
 
-    logger.success(`🗑️ Admin deleted Gemini account: ${accountId}`)
-    return res.json({ success: true, message: 'Gemini account deleted successfully' })
+    let message = 'Gemini账号已成功删除'
+    if (unboundCount > 0) {
+      message += `，${unboundCount} 个 API Key 已切换为共享池模式`
+    }
+
+    logger.success(`🗑️ Admin deleted Gemini account: ${accountId}, unbound ${unboundCount} keys`)
+    return res.json({
+      success: true,
+      message,
+      unboundKeys: unboundCount
+    })
   } catch (error) {
     logger.error('❌ Failed to delete Gemini account:', error)
     return res.status(500).json({ error: 'Failed to delete account', message: error.message })
@@ -3901,7 +4010,9 @@ router.put(
       }
 
       logger.success(
-        `🔄 Admin toggled Gemini account schedulable status: ${accountId} -> ${actualSchedulable ? 'schedulable' : 'not schedulable'}`
+        `🔄 Admin toggled Gemini account schedulable status: ${accountId} -> ${
+          actualSchedulable ? 'schedulable' : 'not schedulable'
+        }`
       )
 
       // 返回实际的数据库值，确保前端状态与后端一致
@@ -4002,6 +4113,7 @@ router.get('/dashboard', authenticateAdmin, async (req, res) => {
       bedrockAccountsResult,
       openaiAccounts,
       ccrAccounts,
+      openaiResponsesAccounts,
       todayStats,
       systemAverages,
       realtimeMetrics
@@ -4012,8 +4124,9 @@ router.get('/dashboard', authenticateAdmin, async (req, res) => {
       claudeConsoleAccountService.getAllAccounts(),
       geminiAccountService.getAllAccounts(),
       bedrockAccountService.getAllAccounts(),
-      ccrAccountService.getAllAccounts(),
       redis.getAllOpenAIAccounts(),
+      ccrAccountService.getAllAccounts(),
+      openaiResponsesAccountService.getAllAccounts(true),
       redis.getTodayStats(),
       redis.getSystemAverages(),
       redis.getRealtimeSystemMetrics()
@@ -4207,6 +4320,39 @@ router.get('/dashboard', authenticateAdmin, async (req, res) => {
       (acc) => acc.rateLimitStatus && acc.rateLimitStatus.isRateLimited
     ).length
 
+    // OpenAI-Responses账户统计
+    // 注意：OpenAI-Responses账户的isActive和schedulable也是字符串类型
+    const normalOpenAIResponsesAccounts = openaiResponsesAccounts.filter(
+      (acc) =>
+        (acc.isActive === 'true' ||
+          acc.isActive === true ||
+          (!acc.isActive && acc.isActive !== 'false' && acc.isActive !== false)) &&
+        acc.status !== 'blocked' &&
+        acc.status !== 'unauthorized' &&
+        acc.schedulable !== 'false' &&
+        acc.schedulable !== false &&
+        !(acc.rateLimitStatus && acc.rateLimitStatus.isRateLimited)
+    ).length
+    const abnormalOpenAIResponsesAccounts = openaiResponsesAccounts.filter(
+      (acc) =>
+        acc.isActive === 'false' ||
+        acc.isActive === false ||
+        acc.status === 'blocked' ||
+        acc.status === 'unauthorized'
+    ).length
+    const pausedOpenAIResponsesAccounts = openaiResponsesAccounts.filter(
+      (acc) =>
+        (acc.schedulable === 'false' || acc.schedulable === false) &&
+        (acc.isActive === 'true' ||
+          acc.isActive === true ||
+          (!acc.isActive && acc.isActive !== 'false' && acc.isActive !== false)) &&
+        acc.status !== 'blocked' &&
+        acc.status !== 'unauthorized'
+    ).length
+    const rateLimitedOpenAIResponsesAccounts = openaiResponsesAccounts.filter(
+      (acc) => acc.rateLimitStatus && acc.rateLimitStatus.isRateLimited
+    ).length
+
     const dashboard = {
       overview: {
         totalApiKeys: apiKeys.length,
@@ -4218,6 +4364,7 @@ router.get('/dashboard', authenticateAdmin, async (req, res) => {
           geminiAccounts.length +
           bedrockAccounts.length +
           openaiAccounts.length +
+          openaiResponsesAccounts.length +
           ccrAccounts.length,
         normalAccounts:
           normalClaudeAccounts +
@@ -4225,6 +4372,7 @@ router.get('/dashboard', authenticateAdmin, async (req, res) => {
           normalGeminiAccounts +
           normalBedrockAccounts +
           normalOpenAIAccounts +
+          normalOpenAIResponsesAccounts +
           normalCcrAccounts,
         abnormalAccounts:
           abnormalClaudeAccounts +
@@ -4232,6 +4380,7 @@ router.get('/dashboard', authenticateAdmin, async (req, res) => {
           abnormalGeminiAccounts +
           abnormalBedrockAccounts +
           abnormalOpenAIAccounts +
+          abnormalOpenAIResponsesAccounts +
           abnormalCcrAccounts,
         pausedAccounts:
           pausedClaudeAccounts +
@@ -4239,6 +4388,7 @@ router.get('/dashboard', authenticateAdmin, async (req, res) => {
           pausedGeminiAccounts +
           pausedBedrockAccounts +
           pausedOpenAIAccounts +
+          pausedOpenAIResponsesAccounts +
           pausedCcrAccounts,
         rateLimitedAccounts:
           rateLimitedClaudeAccounts +
@@ -4246,6 +4396,7 @@ router.get('/dashboard', authenticateAdmin, async (req, res) => {
           rateLimitedGeminiAccounts +
           rateLimitedBedrockAccounts +
           rateLimitedOpenAIAccounts +
+          rateLimitedOpenAIResponsesAccounts +
           rateLimitedCcrAccounts,
         // 各平台详细统计
         accountsByPlatform: {
@@ -4290,6 +4441,13 @@ router.get('/dashboard', authenticateAdmin, async (req, res) => {
             abnormal: abnormalCcrAccounts,
             paused: pausedCcrAccounts,
             rateLimited: rateLimitedCcrAccounts
+          },
+          'openai-responses': {
+            total: openaiResponsesAccounts.length,
+            normal: normalOpenAIResponsesAccounts,
+            abnormal: abnormalOpenAIResponsesAccounts,
+            paused: pausedOpenAIResponsesAccounts,
+            rateLimited: rateLimitedOpenAIResponsesAccounts
           }
         },
         // 保留旧字段以兼容
@@ -4299,6 +4457,7 @@ router.get('/dashboard', authenticateAdmin, async (req, res) => {
           normalGeminiAccounts +
           normalBedrockAccounts +
           normalOpenAIAccounts +
+          normalOpenAIResponsesAccounts +
           normalCcrAccounts,
         totalClaudeAccounts: claudeAccounts.length + claudeConsoleAccounts.length,
         activeClaudeAccounts: normalClaudeAccounts + normalClaudeConsoleAccounts,
@@ -4376,7 +4535,10 @@ router.get('/model-stats', authenticateAdmin, async (req, res) => {
     const { period = 'daily', startDate, endDate } = req.query // daily, monthly, 支持自定义时间范围
     const today = redis.getDateStringInTimezone()
     const tzDate = redis.getDateInTimezone()
-    const currentMonth = `${tzDate.getUTCFullYear()}-${String(tzDate.getUTCMonth() + 1).padStart(2, '0')}`
+    const currentMonth = `${tzDate.getUTCFullYear()}-${String(tzDate.getUTCMonth() + 1).padStart(
+      2,
+      '0'
+    )}`
 
     logger.info(
       `📊 Getting global model stats, period: ${period}, startDate: ${startDate}, endDate: ${endDate}, today: ${today}, currentMonth: ${currentMonth}`
@@ -4847,7 +5009,10 @@ router.get('/api-keys/:keyId/model-stats', authenticateAdmin, async (req, res) =
     const client = redis.getClientSafe()
     const today = redis.getDateStringInTimezone()
     const tzDate = redis.getDateInTimezone()
-    const currentMonth = `${tzDate.getUTCFullYear()}-${String(tzDate.getUTCMonth() + 1).padStart(2, '0')}`
+    const currentMonth = `${tzDate.getUTCFullYear()}-${String(tzDate.getUTCMonth() + 1).padStart(
+      2,
+      '0'
+    )}`
 
     let searchPatterns = []
 
@@ -5378,7 +5543,10 @@ router.get('/usage-costs', authenticateAdmin, async (req, res) => {
     const client = redis.getClientSafe()
     const today = redis.getDateStringInTimezone()
     const tzDate = redis.getDateInTimezone()
-    const currentMonth = `${tzDate.getUTCFullYear()}-${String(tzDate.getUTCMonth() + 1).padStart(2, '0')}`
+    const currentMonth = `${tzDate.getUTCFullYear()}-${String(tzDate.getUTCMonth() + 1).padStart(
+      2,
+      '0'
+    )}`
 
     let pattern
     if (period === 'today') {
@@ -5394,7 +5562,9 @@ router.get('/usage-costs', authenticateAdmin, async (req, res) => {
         const date = new Date()
         date.setDate(date.getDate() - i)
         const currentTzDate = redis.getDateInTimezone(date)
-        const dateStr = `${currentTzDate.getUTCFullYear()}-${String(currentTzDate.getUTCMonth() + 1).padStart(2, '0')}-${String(currentTzDate.getUTCDate()).padStart(2, '0')}`
+        const dateStr = `${currentTzDate.getUTCFullYear()}-${String(
+          currentTzDate.getUTCMonth() + 1
+        ).padStart(2, '0')}-${String(currentTzDate.getUTCDate()).padStart(2, '0')}`
         const dayPattern = `usage:model:daily:*:${dateStr}`
 
         const dayKeys = await client.keys(dayPattern)
@@ -5447,7 +5617,9 @@ router.get('/usage-costs', authenticateAdmin, async (req, res) => {
         totalCosts.totalCost += costResult.costs.total
 
         logger.info(
-          `💰 Model ${model} (7days): ${usage.inputTokens + usage.outputTokens + usage.cacheCreateTokens + usage.cacheReadTokens} tokens, cost: ${costResult.formatted.total}`
+          `💰 Model ${model} (7days): ${
+            usage.inputTokens + usage.outputTokens + usage.cacheCreateTokens + usage.cacheReadTokens
+          } tokens, cost: ${costResult.formatted.total}`
         )
 
         // 记录模型费用
@@ -5535,7 +5707,12 @@ router.get('/usage-costs', authenticateAdmin, async (req, res) => {
           totalCosts.totalCost += costResult.costs.total
 
           logger.info(
-            `💰 Model ${model}: ${usage.inputTokens + usage.outputTokens + usage.cacheCreateTokens + usage.cacheReadTokens} tokens, cost: ${costResult.formatted.total}`
+            `💰 Model ${model}: ${
+              usage.inputTokens +
+              usage.outputTokens +
+              usage.cacheCreateTokens +
+              usage.cacheReadTokens
+            } tokens, cost: ${costResult.formatted.total}`
           )
 
           // 记录模型费用
@@ -6130,6 +6307,7 @@ router.post('/openai-accounts/exchange-code', authenticateAdmin, async (req, res
     const proxyAgent = ProxyHelper.createProxyAgent(sessionData.proxy)
     if (proxyAgent) {
       axiosConfig.httpsAgent = proxyAgent
+      axiosConfig.proxy = false
     }
 
     // 交换 authorization code 获取 tokens
@@ -6619,6 +6797,9 @@ router.delete('/openai-accounts/:id', authenticateAdmin, async (req, res) => {
       })
     }
 
+    // 自动解绑所有绑定的 API Keys
+    const unboundCount = await apiKeyService.unbindAccountFromAllKeys(id, 'openai')
+
     // 如果账户在分组中，从分组中移除
     if (account.accountType === 'group') {
       const group = await accountGroupService.getAccountGroup(id)
@@ -6629,11 +6810,19 @@ router.delete('/openai-accounts/:id', authenticateAdmin, async (req, res) => {
 
     await openaiAccountService.deleteAccount(id)
 
-    logger.success(`✅ 删除 OpenAI 账户成功: ${account.name} (ID: ${id})`)
+    let message = 'OpenAI账号已成功删除'
+    if (unboundCount > 0) {
+      message += `，${unboundCount} 个 API Key 已切换为共享池模式`
+    }
+
+    logger.success(
+      `✅ 删除 OpenAI 账户成功: ${account.name} (ID: ${id}), unbound ${unboundCount} keys`
+    )
 
     return res.json({
       success: true,
-      message: '账户删除成功'
+      message,
+      unboundKeys: unboundCount
     })
   } catch (error) {
     logger.error('删除 OpenAI 账户失败:', error)
@@ -6892,7 +7081,9 @@ router.post('/azure-openai-accounts', authenticateAdmin, async (req, res) => {
 
     // 测试连接
     try {
-      const testUrl = `${azureEndpoint}/openai/deployments/${deploymentName}?api-version=${apiVersion || '2024-02-01'}`
+      const testUrl = `${azureEndpoint}/openai/deployments/${deploymentName}?api-version=${
+        apiVersion || '2024-02-01'
+      }`
       await axios.get(testUrl, {
         headers: {
           'api-key': apiKey
@@ -6980,11 +7171,22 @@ router.delete('/azure-openai-accounts/:id', authenticateAdmin, async (req, res) 
   try {
     const { id } = req.params
 
+    // 自动解绑所有绑定的 API Keys
+    const unboundCount = await apiKeyService.unbindAccountFromAllKeys(id, 'azure_openai')
+
     await azureOpenaiAccountService.deleteAccount(id)
+
+    let message = 'Azure OpenAI账号已成功删除'
+    if (unboundCount > 0) {
+      message += `，${unboundCount} 个 API Key 已切换为共享池模式`
+    }
+
+    logger.success(`🗑️ Admin deleted Azure OpenAI account: ${id}, unbound ${unboundCount} keys`)
 
     res.json({
       success: true,
-      message: 'Azure OpenAI account deleted successfully'
+      message,
+      unboundKeys: unboundCount
     })
   } catch (error) {
     logger.error('Failed to delete Azure OpenAI account:', error)
@@ -7349,6 +7551,9 @@ router.delete('/openai-responses-accounts/:id', authenticateAdmin, async (req, r
       })
     }
 
+    // 自动解绑所有绑定的 API Keys
+    const unboundCount = await apiKeyService.unbindAccountFromAllKeys(id, 'openai-responses')
+
     // 检查是否在分组中
     const groups = await accountGroupService.getAllGroups()
     for (const group of groups) {
@@ -7359,7 +7564,20 @@ router.delete('/openai-responses-accounts/:id', authenticateAdmin, async (req, r
     }
 
     const result = await openaiResponsesAccountService.deleteAccount(id)
-    res.json({ success: true, ...result })
+
+    let message = 'OpenAI-Responses账号已成功删除'
+    if (unboundCount > 0) {
+      message += `，${unboundCount} 个 API Key 已切换为共享池模式`
+    }
+
+    logger.success(`🗑️ Admin deleted OpenAI-Responses account: ${id}, unbound ${unboundCount} keys`)
+
+    res.json({
+      success: true,
+      ...result,
+      message,
+      unboundKeys: unboundCount
+    })
   } catch (error) {
     logger.error('Failed to delete OpenAI-Responses account:', error)
     res.status(500).json({
