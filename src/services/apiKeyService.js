@@ -784,6 +784,7 @@ class ApiKeyService {
         },
         model
       )
+      const usageCost = costInfo && costInfo.costs ? costInfo.costs.total || 0 : 0
 
       // 检查是否为 1M 上下文请求
       let isLongContextRequest = false
@@ -835,6 +836,15 @@ class ApiKeyService {
             model,
             isLongContextRequest
           )
+          await redis.incrementAccountKeyUsage(accountId, keyId, {
+            totalTokens,
+            inputTokens,
+            outputTokens,
+            cacheCreateTokens,
+            cacheReadTokens,
+            cost: usageCost,
+            model
+          })
           logger.database(
             `📊 Recorded account usage: ${accountId} - ${totalTokens} tokens (API Key: ${keyId})`
           )
@@ -846,7 +856,6 @@ class ApiKeyService {
       }
 
       // 记录单次请求的使用详情
-      const usageCost = costInfo && costInfo.costs ? costInfo.costs.total || 0 : 0
       await redis.addUsageRecord(keyId, {
         timestamp: new Date().toISOString(),
         model,

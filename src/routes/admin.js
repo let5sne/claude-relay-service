@@ -4098,6 +4098,45 @@ router.get('/accounts/:accountId/usage-stats', authenticateAdmin, async (req, re
   }
 })
 
+router.get('/accounts/:accountId/usage-breakdown', authenticateAdmin, async (req, res) => {
+  try {
+    const { accountId } = req.params
+    const {
+      range = 'total',
+      date = null,
+      month = null,
+      limit = 20,
+      offset = 0,
+      order = 'desc'
+    } = req.query
+
+    const parsedLimit = Math.min(100, Math.max(1, parseInt(limit, 10) || 20))
+    const parsedOffset = Math.max(0, parseInt(offset, 10) || 0)
+    const normalizedOrder = order === 'asc' ? 'asc' : 'desc'
+
+    const breakdown = await redis.getAccountKeyUsageBreakdown(accountId, {
+      range,
+      date,
+      month,
+      limit: parsedLimit,
+      offset: parsedOffset,
+      order: normalizedOrder
+    })
+
+    return res.json({
+      success: true,
+      data: breakdown
+    })
+  } catch (error) {
+    logger.error('❌ Failed to get account usage breakdown:', error)
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to get account usage breakdown',
+      message: error.message
+    })
+  }
+})
+
 // 📊 系统统计
 
 // 获取系统概览

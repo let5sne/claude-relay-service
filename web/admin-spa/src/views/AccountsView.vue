@@ -849,6 +849,151 @@
                       }}M</span
                     >
                   </div>
+
+                  <div
+                    class="mt-6 rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900/70"
+                  >
+                    <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+                      <div class="flex items-center gap-2">
+                        <span class="text-sm font-semibold text-gray-900 dark:text-gray-100"
+                          >API Key 明细</span
+                        >
+                        <span
+                          v-if="accountBreakdowns[account.id]?.totalTokens"
+                          class="text-xs text-gray-500 dark:text-gray-400"
+                        >
+                          总 Tokens：{{ formatNumber(accountBreakdowns[account.id].totalTokens) }}M
+                        </span>
+                      </div>
+                      <div class="flex items-center gap-1">
+                        <button
+                          v-for="option in breakdownRangeOptions"
+                          :key="option.value"
+                          class="rounded px-2 py-1 text-xs transition-colors"
+                          :class="
+                            accountBreakdowns[account.id]?.range === option.value
+                              ? 'bg-indigo-600 text-white'
+                              : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300'
+                          "
+                          :disabled="
+                            accountBreakdowns[account.id]?.loading &&
+                            accountBreakdowns[account.id]?.range === option.value
+                          "
+                          @click="handleBreakdownRangeChange(account, option.value)"
+                        >
+                          {{ option.label }}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div
+                      v-if="
+                        accountBreakdowns[account.id]?.loading &&
+                        (accountBreakdowns[account.id]?.items.length === 0 ||
+                          !accountBreakdowns[account.id]?.initialized)
+                      "
+                      class="text-xs text-gray-500 dark:text-gray-400"
+                    >
+                      正在加载明细...
+                    </div>
+                    <div
+                      v-else-if="accountBreakdowns[account.id]?.error"
+                      class="flex items-center justify-between rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600 dark:border-red-700 dark:bg-red-900/20 dark:text-red-300"
+                    >
+                      <span>{{ accountBreakdowns[account.id].error }}</span>
+                      <button
+                        class="rounded bg-red-500 px-2 py-1 text-xs text-white hover:bg-red-600"
+                        @click="
+                          loadAccountBreakdown(account, {
+                            range: accountBreakdowns[account.id].range,
+                            reset: true
+                          })
+                        "
+                      >
+                        重试
+                      </button>
+                    </div>
+                    <div
+                      v-else-if="
+                        !accountBreakdowns[account.id] ||
+                        accountBreakdowns[account.id].items.length === 0
+                      "
+                      class="text-xs text-gray-400"
+                    >
+                      暂无明细数据
+                    </div>
+                    <div v-else class="overflow-x-auto">
+                      <table class="min-w-full text-left text-xs text-gray-600 dark:text-gray-300">
+                        <thead>
+                          <tr class="border-b border-gray-100 text-gray-500 dark:border-gray-700">
+                            <th class="py-2 pr-4 font-medium">API Key</th>
+                            <th class="py-2 pr-4 font-medium">请求数</th>
+                            <th class="py-2 pr-4 font-medium">Tokens (M)</th>
+                            <th class="py-2 pr-4 font-medium">费用</th>
+                            <th class="py-2 pr-4 font-medium">占比</th>
+                            <th class="py-2 pr-4 font-medium">最后模型</th>
+                            <th class="py-2 font-medium">最近更新</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr
+                            v-for="item in accountBreakdowns[account.id].items"
+                            :key="item.keyId"
+                            class="border-b border-gray-100 last:border-b-0 dark:border-gray-700"
+                          >
+                            <td
+                              class="py-2 pr-4 font-mono text-[11px] text-indigo-600 dark:text-indigo-300"
+                            >
+                              {{ item.keyId }}
+                            </td>
+                            <td class="py-2 pr-4">{{ item.requests }}</td>
+                            <td class="py-2 pr-4">{{ formatNumber(item.totalTokens) }}M</td>
+                            <td class="py-2 pr-4">
+                              {{ item.cost ? `$${formatCost(item.cost)}` : '-' }}
+                            </td>
+                            <td class="py-2 pr-4">
+                              <span
+                                class="rounded bg-gray-100 px-2 py-0.5 text-[11px] text-gray-600 dark:bg-gray-800 dark:text-gray-300"
+                              >
+                                {{
+                                  accountBreakdowns[account.id].totalTokens > 0
+                                    ? (
+                                        (item.totalTokens /
+                                          accountBreakdowns[account.id].totalTokens) *
+                                        100
+                                      ).toFixed(2)
+                                    : '0.00'
+                                }}%
+                              </span>
+                            </td>
+                            <td class="py-2 pr-4">{{ item.lastModel || '-' }}</td>
+                            <td class="py-2">
+                              {{ item.updatedAt ? formatRelativeTime(item.updatedAt) : '-' }}
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+
+                      <div
+                        class="mt-3 flex items-center justify-between text-xs text-gray-500 dark:text-gray-400"
+                      >
+                        <span>
+                          共 {{ accountBreakdowns[account.id].total }} 个 Key
+                          <template v-if="accountBreakdowns[account.id].hasMore">
+                            ，已加载 {{ accountBreakdowns[account.id].items.length }} 个
+                          </template>
+                        </span>
+                        <button
+                          v-if="accountBreakdowns[account.id].hasMore"
+                          class="rounded bg-gray-100 px-2 py-1 text-xs text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300"
+                          :disabled="accountBreakdowns[account.id].loading"
+                          @click="loadMoreBreakdown(account)"
+                        >
+                          {{ accountBreakdowns[account.id].loading ? '加载中...' : '加载更多' }}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                 </td>
               </tr>
             </template>
@@ -1007,6 +1152,92 @@
                 </div>
               </div>
               <div v-else class="text-sm font-semibold text-gray-400">-</div>
+            </div>
+          </div>
+
+          <div
+            class="mb-3 rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-900/60"
+          >
+            <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <span class="text-xs font-semibold text-gray-700 dark:text-gray-200"
+                >API Key 明细</span
+              >
+              <div class="flex items-center gap-1">
+                <button
+                  v-for="option in breakdownRangeOptions"
+                  :key="option.value"
+                  class="rounded px-2 py-0.5 text-[11px] transition-colors"
+                  :class="
+                    accountBreakdowns[account.id]?.range === option.value
+                      ? 'bg-indigo-600 text-white'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300'
+                  "
+                  :disabled="
+                    accountBreakdowns[account.id]?.loading &&
+                    accountBreakdowns[account.id]?.range === option.value
+                  "
+                  @click="handleBreakdownRangeChange(account, option.value)"
+                >
+                  {{ option.label }}
+                </button>
+              </div>
+            </div>
+
+            <div
+              v-if="
+                accountBreakdowns[account.id]?.loading &&
+                (accountBreakdowns[account.id]?.items.length === 0 ||
+                  !accountBreakdowns[account.id]?.initialized)
+              "
+              class="text-[11px] text-gray-500 dark:text-gray-400"
+            >
+              正在加载明细...
+            </div>
+            <div v-else-if="accountBreakdowns[account.id]?.error" class="text-[11px] text-red-500">
+              {{ accountBreakdowns[account.id].error }}
+            </div>
+            <div
+              v-else-if="
+                !accountBreakdowns[account.id] || accountBreakdowns[account.id].items.length === 0
+              "
+              class="text-[11px] text-gray-400"
+            >
+              暂无明细数据
+            </div>
+            <div v-else class="space-y-1">
+              <div
+                v-for="item in accountBreakdowns[account.id].items"
+                :key="item.keyId"
+                class="flex items-center justify-between rounded bg-gray-50 px-2 py-1 text-[11px] dark:bg-gray-800"
+              >
+                <div
+                  class="flex-1 truncate pr-2 font-mono text-[10px] text-indigo-500 dark:text-indigo-300"
+                >
+                  {{ item.keyId }}
+                </div>
+                <div class="flex items-center gap-2 text-gray-600 dark:text-gray-300">
+                  <span>{{ item.requests }} 次</span>
+                  <span>{{ formatNumber(item.totalTokens) }}M</span>
+                  <span>
+                    {{
+                      accountBreakdowns[account.id].totalTokens > 0
+                        ? (
+                            (item.totalTokens / accountBreakdowns[account.id].totalTokens) *
+                            100
+                          ).toFixed(1)
+                        : '0.0'
+                    }}%
+                  </span>
+                </div>
+              </div>
+              <button
+                v-if="accountBreakdowns[account.id].hasMore"
+                class="mt-2 w-full rounded bg-gray-100 py-1 text-xs text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300"
+                :disabled="accountBreakdowns[account.id].loading"
+                @click="loadMoreBreakdown(account)"
+              >
+                {{ accountBreakdowns[account.id].loading ? '加载中...' : '加载更多' }}
+              </button>
             </div>
           </div>
 
@@ -1268,6 +1499,7 @@ const groupsLoaded = ref(false)
 const groupMembersLoaded = ref(false)
 const accountGroupMap = ref(new Map()) // Map<accountId, Array<groupInfo>>
 const expandedAccountIds = ref(new Set())
+const accountBreakdowns = ref({})
 
 // 下拉选项数据
 const sortOptions = ref([
@@ -1290,6 +1522,90 @@ const platformOptions = ref([
   { value: 'ccr', label: 'CCR', icon: 'fa-code-branch' }
 ])
 
+const breakdownRangeOptions = [
+  { value: 'total', label: '累计' },
+  { value: 'monthly', label: '本月' },
+  { value: 'daily', label: '今日' }
+]
+
+const initBreakdownState = (accountId) => {
+  if (!accountBreakdowns.value[accountId]) {
+    accountBreakdowns.value[accountId] = {
+      items: [],
+      total: 0,
+      totalTokens: 0,
+      offset: 0,
+      hasMore: true,
+      loading: false,
+      error: null,
+      initialized: false,
+      range: 'total'
+    }
+  }
+  return accountBreakdowns.value[accountId]
+}
+
+const loadAccountBreakdown = async (account, { range = 'total', reset = false } = {}) => {
+  if (!account?.id) return
+  const state = initBreakdownState(account.id)
+
+  if (state.loading) return
+
+  if (reset) {
+    state.items = []
+    state.offset = 0
+    state.hasMore = true
+    state.initialized = false
+  }
+
+  if (!state.hasMore && state.initialized && !reset) {
+    return
+  }
+
+  state.loading = true
+  state.error = null
+  state.range = range
+
+  try {
+    const response = await apiClient.get(`/admin/accounts/${account.id}/usage-breakdown`, {
+      params: {
+        range,
+        limit: 20,
+        offset: state.offset
+      }
+    })
+
+    const payload = response?.data || {}
+    const items = payload.items || []
+
+    state.items = reset ? items : [...state.items, ...items]
+    state.total = payload.total ?? state.total
+    state.totalTokens = payload.totalTokens ?? state.totalTokens
+    state.offset = payload.nextOffset ?? state.offset + items.length
+    state.hasMore = payload.hasMore ?? false
+    state.initialized = true
+  } catch (error) {
+    console.error('Failed to load account usage breakdown:', error)
+    state.error = error?.message || '加载失败'
+  } finally {
+    state.loading = false
+  }
+}
+
+const handleBreakdownRangeChange = (account, range) => {
+  const state = initBreakdownState(account.id)
+  if (state.range === range && state.initialized && !state.error) {
+    return
+  }
+  loadAccountBreakdown(account, { range, reset: true })
+}
+
+const loadMoreBreakdown = (account) => {
+  const state = initBreakdownState(account.id)
+  if (!state.hasMore || state.loading) return
+  loadAccountBreakdown(account, { range: state.range })
+}
+
 const toggleAccountDetails = (account) => {
   if (!account?.id) return
   const next = new Set(expandedAccountIds.value)
@@ -1299,6 +1615,10 @@ const toggleAccountDetails = (account) => {
     next.add(account.id)
   }
   expandedAccountIds.value = next
+  const state = initBreakdownState(account.id)
+  if (!state.initialized && !state.loading) {
+    loadAccountBreakdown(account, { range: state.range, reset: true })
+  }
 }
 
 const isAccountExpanded = (accountId) => expandedAccountIds.value.has(accountId)
