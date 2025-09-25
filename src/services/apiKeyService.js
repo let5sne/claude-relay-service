@@ -9,6 +9,7 @@ const postgresUsageRepository = require('../repositories/postgresUsageRepository
 class ApiKeyService {
   constructor() {
     this.prefix = config.security.apiKeyPrefix
+    this.syncedAccountCache = new Set()
   }
 
   // 🔑 生成新的API Key
@@ -893,6 +894,18 @@ class ApiKeyService {
 
       // 获取API Key数据以确定关联的账户
       const keyData = await redis.getApiKey(keyId)
+      let keyMetadata = {}
+      if (keyData && keyData.metadata) {
+        if (typeof keyData.metadata === 'string') {
+          try {
+            keyMetadata = JSON.parse(keyData.metadata)
+          } catch (parseError) {
+            keyMetadata = {}
+          }
+        } else if (typeof keyData.metadata === 'object') {
+          keyMetadata = keyData.metadata
+        }
+      }
       if (keyData && Object.keys(keyData).length > 0) {
         // 更新最后使用时间
         keyData.lastUsedAt = new Date().toISOString()
@@ -922,6 +935,8 @@ class ApiKeyService {
           logger.database(
             `📊 Recorded account usage: ${accountId} - ${totalTokens} tokens (API Key: ${keyId})`
           )
+
+          await this._ensureAccountSynced(accountId, null, keyData)
         } else {
           logger.debug(
             '⚠️ No accountId provided for usage recording, skipping account-level statistics'
@@ -960,7 +975,14 @@ class ApiKeyService {
           metadata: {
             source: 'redis-sync',
             isLongContext: isLongContextRequest
-          }
+          },
+          requestStatus: 'success',
+          responseLatencyMs: 0,
+          httpStatus: null,
+          errorCode: null,
+          retries: 0,
+          clientType: keyData?.clientType || keyMetadata.clientType || null,
+          region: keyData?.region || keyMetadata.region || null
         })
       } catch (dbError) {
         logger.warn(`⚠️ Failed to persist usage to PostgreSQL for key ${keyId}: ${dbError.message}`)
@@ -1116,6 +1138,18 @@ class ApiKeyService {
 
       // 获取API Key数据以确定关联的账户
       const keyData = await redis.getApiKey(keyId)
+      let keyMetadata = {}
+      if (keyData && keyData.metadata) {
+        if (typeof keyData.metadata === 'string') {
+          try {
+            keyMetadata = JSON.parse(keyData.metadata)
+          } catch (parseError) {
+            keyMetadata = {}
+          }
+        } else if (typeof keyData.metadata === 'object') {
+          keyMetadata = keyData.metadata
+        }
+      }
       if (keyData && Object.keys(keyData).length > 0) {
         // 更新最后使用时间
         keyData.lastUsedAt = new Date().toISOString()
@@ -1136,6 +1170,8 @@ class ApiKeyService {
           logger.database(
             `📊 Recorded account usage: ${accountId} - ${totalTokens} tokens (API Key: ${keyId})`
           )
+
+          await this._ensureAccountSynced(accountId, accountType, keyData)
         } else {
           logger.debug(
             '⚠️ No accountId provided for usage recording, skipping account-level statistics'
@@ -1169,6 +1205,50 @@ class ApiKeyService {
 
       await redis.addUsageRecord(keyId, usageRecord)
 
+      let requestStatus = usageObject.request_status || usageObject.status || null
+      if (typeof requestStatus === 'string') {
+        requestStatus = requestStatus.toLowerCase()
+        if (requestStatus === 'ok') {
+          requestStatus = 'success'
+        }
+      }
+      if (!requestStatus) {
+        requestStatus = usageObject.error || usageObject.error_code ? 'error' : 'success'
+      }
+
+      const responseLatencyMs =
+        usageObject.latency_ms ||
+        usageObject.latencyMs ||
+        usageObject.response_time_ms ||
+        usageObject.duration_ms ||
+        0
+
+      const httpStatus =
+        usageObject.http_status || usageObject.status_code || usageObject.response_status || null
+
+      const errorCode =
+        usageObject.error_code ||
+        (usageObject.error && usageObject.error.code) ||
+        usageObject.error_type ||
+        null
+
+      const retries =
+        usageObject.retry_count ||
+        usageObject.retries ||
+        usageObject.attempt ||
+        usageObject.attempts ||
+        0
+
+      const clientType =
+        usageObject.client_type || (keyData && keyData.clientType) || keyMetadata.clientType || null
+
+      const region =
+        usageObject.region ||
+        usageObject.zone ||
+        (keyData && keyData.region) ||
+        keyMetadata.region ||
+        null
+
       try {
         await postgresUsageRepository.recordUsage({
           occurredAt: usageRecord.timestamp,
@@ -1189,7 +1269,14 @@ class ApiKeyService {
             accountType: accountType || 'unknown',
             isLongContext: usageRecord.isLongContext,
             source: 'redis-sync'
-          }
+          },
+          requestStatus,
+          responseLatencyMs,
+          httpStatus,
+          errorCode,
+          retries,
+          clientType,
+          region
         })
       } catch (dbError) {
         logger.warn(`⚠️ Failed to persist usage to PostgreSQL for key ${keyId}: ${dbError.message}`)
@@ -1219,6 +1306,240 @@ class ApiKeyService {
       logger.database(`📊 Recorded usage: ${keyId} - ${logParts.join(', ')}`)
     } catch (error) {
       logger.error('❌ Failed to record usage:', error)
+    }
+  }
+
+  _inferAccountPlatform(accountId, accountType = null, keyData = {}) {
+    if (accountType) {
+      return accountType
+    }
+
+    if (keyData && typeof keyData === 'object') {
+      const {
+        claudeConsoleAccountId,
+        claudeAccountId,
+        geminiAccountId,
+        bedrockAccountId,
+        openaiAccountId,
+        azureOpenaiAccountId
+      } = keyData
+
+      if (claudeConsoleAccountId && claudeConsoleAccountId === accountId) {
+        return 'claude-console'
+      }
+      if (claudeAccountId && claudeAccountId === accountId) {
+        return 'claude'
+      }
+      if (geminiAccountId && geminiAccountId === accountId) {
+        return 'gemini'
+      }
+      if (bedrockAccountId && bedrockAccountId === accountId) {
+        return 'bedrock'
+      }
+      if (openaiAccountId && openaiAccountId === accountId) {
+        return 'openai'
+      }
+      if (azureOpenaiAccountId && azureOpenaiAccountId === accountId) {
+        return 'azure-openai'
+      }
+    }
+
+    return null
+  }
+
+  async _buildAccountRecordFromRedis(accountId, _platformHint = null) {
+    try {
+      const client = redis.getClientSafe()
+      if (!client) {
+        return null
+      }
+
+      const providerConfigs = [
+        {
+          platform: 'claude-console',
+          type: 'claude-console',
+          format: 'hash',
+          keys: [`claude_console_account:${accountId}`]
+        },
+        {
+          platform: 'claude',
+          type: 'claude',
+          format: 'hash',
+          keys: [`claude:account:${accountId}`, `claude_account:${accountId}`]
+        },
+        {
+          platform: 'gemini',
+          type: 'gemini',
+          format: 'hash',
+          keys: [`gemini_account:${accountId}`]
+        },
+        {
+          platform: 'bedrock',
+          type: 'bedrock',
+          format: 'json',
+          keys: [`bedrock_account:${accountId}`]
+        },
+        {
+          platform: 'openai',
+          type: 'openai',
+          format: 'hash',
+          keys: [`openai:account:${accountId}`, `openai_account:${accountId}`]
+        },
+        {
+          platform: 'azure-openai',
+          type: 'azure-openai',
+          format: 'hash',
+          keys: [`azure_openai:account:${accountId}`, `azure-openai:account:${accountId}`]
+        },
+        {
+          platform: 'openai-responses',
+          type: 'openai-responses',
+          format: 'hash',
+          keys: [`openai_responses_account:${accountId}`]
+        },
+        {
+          platform: 'ccr',
+          type: 'ccr',
+          format: 'hash',
+          keys: [`ccr_account:${accountId}`]
+        }
+      ]
+
+      for (const provider of providerConfigs) {
+        let raw = null
+
+        for (const key of provider.keys) {
+          if (!key) {
+            continue
+          }
+
+          if (provider.format === 'json') {
+            const payload = await client.get(key)
+            if (!payload) {
+              continue
+            }
+            try {
+              raw = JSON.parse(payload)
+            } catch (parseError) {
+              logger.debug(`⚠️ Failed to parse JSON payload for ${key}: ${parseError.message}`)
+              continue
+            }
+          } else {
+            const hash = await client.hgetall(key)
+            if (hash && Object.keys(hash).length > 0) {
+              raw = hash
+            }
+          }
+
+          if (raw && Object.keys(raw).length > 0) {
+            break
+          }
+        }
+
+        if (!raw || Object.keys(raw).length === 0) {
+          continue
+        }
+
+        const metadata = this._sanitizeAccountMetadata(raw)
+        const statusFlag =
+          metadata.status ||
+          (metadata.isActive === 'true' || metadata.isActive === true ? 'active' : 'inactive')
+
+        return {
+          id: accountId,
+          name: metadata.name || metadata.email || accountId,
+          type: metadata.accountType || metadata.type || provider.type,
+          platform: provider.platform,
+          description: metadata.description || '',
+          status: statusFlag,
+          priority: parseInt(metadata.priority, 10) || 50,
+          metadata
+        }
+      }
+
+      return null
+    } catch (error) {
+      logger.debug(
+        `⚠️ Failed to build account record from Redis for ${accountId}: ${error.message}`
+      )
+      return null
+    }
+  }
+
+  _buildFallbackAccountRecord(accountId, platformHint = null) {
+    return {
+      id: accountId,
+      name: `Recovered Account ${accountId}`,
+      type: platformHint === 'claude-console' ? 'claude-console' : 'generic',
+      platform: platformHint || 'unknown',
+      description: '',
+      status: 'unknown',
+      priority: 50,
+      metadata: {
+        source: 'usage-auto-sync',
+        platformHint: platformHint || 'unknown',
+        syncedAt: new Date().toISOString()
+      }
+    }
+  }
+
+  _sanitizeAccountMetadata(raw = {}) {
+    const metadata = {}
+    const sensitivePattern = /api[-_]?key|secret|token|password|credential|bearer|refresh/i
+
+    for (const [key, value] of Object.entries(raw)) {
+      if (value === undefined || value === null) {
+        continue
+      }
+
+      if (sensitivePattern.test(key)) {
+        metadata[key] = '[redacted]'
+      } else {
+        metadata[key] = value
+      }
+    }
+
+    metadata.platform = metadata.platform || raw.platform
+    metadata.source = metadata.source || 'redis-sync'
+    metadata.syncedAt = new Date().toISOString()
+
+    return metadata
+  }
+
+  async _ensureAccountSynced(accountId, accountType = null, keyData = null) {
+    if (!accountId || this.syncedAccountCache.has(accountId)) {
+      return
+    }
+
+    try {
+      const existing = await postgresUsageRepository.getAccountById(accountId)
+      if (existing) {
+        this.syncedAccountCache.add(accountId)
+        return
+      }
+    } catch (error) {
+      logger.debug(`⚠️ Failed to verify account ${accountId} in PostgreSQL: ${error.message}`)
+      return
+    }
+
+    const platformHint = this._inferAccountPlatform(accountId, accountType, keyData || {})
+    let accountRecord = await this._buildAccountRecordFromRedis(accountId, platformHint)
+
+    if (!accountRecord) {
+      accountRecord = this._buildFallbackAccountRecord(accountId, platformHint)
+    }
+
+    if (!accountRecord) {
+      this.syncedAccountCache.add(accountId)
+      return
+    }
+
+    try {
+      await postgresUsageRepository.upsertAccount(accountRecord)
+      this.syncedAccountCache.add(accountId)
+      logger.database?.(`🐘 Auto-synced account ${accountId} into PostgreSQL`)
+    } catch (error) {
+      logger.warn(`⚠️ Failed to auto-sync account ${accountId} into PostgreSQL: ${error.message}`)
     }
   }
 

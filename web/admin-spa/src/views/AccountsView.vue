@@ -832,6 +832,18 @@
                             {{ formatOptionalCost(section.cost) }}
                           </span>
                         </div>
+                        <div class="flex items-center justify-between">
+                          <span>Tokens / $</span>
+                          <span class="font-semibold text-gray-900 dark:text-gray-100">
+                            {{ formatTokensPerDollarMetric(section.tokensPerDollar) }}
+                          </span>
+                        </div>
+                        <div class="flex items-center justify-between">
+                          <span>$ / 1M Tokens</span>
+                          <span class="font-semibold text-gray-900 dark:text-gray-100">
+                            {{ formatCostPerMillionMetric(section.costPerMillion) }}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -927,6 +939,7 @@
                         <thead>
                           <tr class="border-b border-gray-100 text-gray-500 dark:border-gray-700">
                             <th class="py-2 pr-4 font-medium">API Key</th>
+                            <th class="py-2 pr-4 font-medium">名称</th>
                             <th class="py-2 pr-4 font-medium">请求数</th>
                             <th class="py-2 pr-4 font-medium">Tokens (M)</th>
                             <th class="py-2 pr-4 font-medium">费用</th>
@@ -938,18 +951,27 @@
                         <tbody>
                           <tr
                             v-for="item in accountBreakdowns[account.id].items"
-                            :key="item.keyId"
+                            :key="item.apiKeyId || item.keyId || item.id"
                             class="border-b border-gray-100 last:border-b-0 dark:border-gray-700"
                           >
                             <td
                               class="py-2 pr-4 font-mono text-[11px] text-indigo-600 dark:text-indigo-300"
                             >
-                              {{ item.keyId }}
+                              {{ item.apiKeyId || item.keyId || '-' }}
+                            </td>
+                            <td class="py-2 pr-4">
+                              <span class="truncate text-[11px] text-gray-600 dark:text-gray-300">
+                                {{ item.apiKeyName || '-' }}
+                              </span>
                             </td>
                             <td class="py-2 pr-4">{{ item.requests }}</td>
                             <td class="py-2 pr-4">{{ formatNumber(item.totalTokens) }}M</td>
                             <td class="py-2 pr-4">
-                              {{ item.cost ? `$${formatCost(item.cost)}` : '-' }}
+                              {{
+                                item.totalCost && item.totalCost > 0
+                                  ? `$${formatCost(item.totalCost)}`
+                                  : '-'
+                              }}
                             </td>
                             <td class="py-2 pr-4">
                               <span
@@ -968,7 +990,7 @@
                             </td>
                             <td class="py-2 pr-4">{{ item.lastModel || '-' }}</td>
                             <td class="py-2">
-                              {{ item.updatedAt ? formatRelativeTime(item.updatedAt) : '-' }}
+                              {{ item.lastUsedAt ? formatRelativeTime(item.lastUsedAt) : '-' }}
                             </td>
                           </tr>
                         </tbody>
@@ -1207,13 +1229,20 @@
             <div v-else class="space-y-1">
               <div
                 v-for="item in accountBreakdowns[account.id].items"
-                :key="item.keyId"
+                :key="item.apiKeyId || item.keyId || item.id"
                 class="flex items-center justify-between rounded bg-gray-50 px-2 py-1 text-[11px] dark:bg-gray-800"
               >
-                <div
-                  class="flex-1 truncate pr-2 font-mono text-[10px] text-indigo-500 dark:text-indigo-300"
-                >
-                  {{ item.keyId }}
+                <div class="flex flex-1 items-center gap-3 pr-2">
+                  <div
+                    class="min-w-[120px] flex-1 truncate font-mono text-[10px] text-indigo-500 dark:text-indigo-300"
+                  >
+                    {{ item.apiKeyId || item.keyId || '-' }}
+                  </div>
+                  <div
+                    class="hidden min-w-[110px] flex-1 truncate text-[11px] text-gray-600 dark:text-gray-300 sm:block"
+                  >
+                    {{ item.apiKeyName || '-' }}
+                  </div>
                 </div>
                 <div class="flex items-center gap-2 text-gray-600 dark:text-gray-300">
                   <span>{{ item.requests }} 次</span>
@@ -1407,6 +1436,18 @@
                       {{ formatOptionalCost(section.cost) }}
                     </span>
                   </div>
+                  <div class="flex items-center justify-between">
+                    <span>Tokens / $</span>
+                    <span class="font-semibold text-gray-900 dark:text-gray-100">
+                      {{ formatTokensPerDollarMetric(section.tokensPerDollar) }}
+                    </span>
+                  </div>
+                  <div class="flex items-center justify-between">
+                    <span>$ / 1M Tokens</span>
+                    <span class="font-semibold text-gray-900 dark:text-gray-100">
+                      {{ formatCostPerMillionMetric(section.costPerMillion) }}
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1575,7 +1616,7 @@ const loadAccountBreakdown = async (account, { range = 'total', reset = false } 
       }
     })
 
-    const payload = response?.data || {}
+    const payload = response || {}
     const items = payload.items || []
 
     state.items = reset ? items : [...state.items, ...items]
@@ -1751,8 +1792,8 @@ const loadAccounts = async (forceReload = false) => {
       const usageResponse = await apiClient.get('/admin/accounts/usage-stats', {
         params: { range: 'total' }
       })
-      if (usageResponse.data?.success) {
-        usageStats = usageResponse.data.data || []
+      if (usageResponse?.success) {
+        usageStats = usageResponse.data || []
       }
     } catch (error) {
       console.error('Failed to load aggregated account usage stats:', error)
@@ -1873,7 +1914,10 @@ const loadAccounts = async (forceReload = false) => {
         if (usageMap.has(account.id)) {
           account.usage = usageMap.get(account.id)
         }
+        normalizeAccountUsage(account)
       })
+    } else {
+      allAccounts.forEach((account) => normalizeAccountUsage(account))
     }
 
     // 根据分组筛选器过滤账户
@@ -1933,6 +1977,73 @@ const formatNumber = (num) => {
   return (number / 1000000).toFixed(6)
 }
 
+const normalizeAverageMetric = (value) => {
+  if (value === null || value === undefined) return 0
+  const num = Number(value)
+  if (!Number.isFinite(num) || num < 0) return 0
+  return num
+}
+
+const computeFallbackAverages = (usage = {}, createdAt) => {
+  if (!usage || !usage.total) {
+    return { rpm: 0, tpm: 0, dailyRequests: 0, dailyTokens: 0 }
+  }
+
+  let referenceDate = null
+  if (createdAt) {
+    try {
+      const parsed = new Date(createdAt)
+      if (!Number.isNaN(parsed.getTime())) {
+        referenceDate = parsed
+      }
+    } catch (error) {
+      // ignore parsing error, fallback to now
+    }
+  }
+
+  const now = Date.now()
+  const createdTime = referenceDate ? referenceDate.getTime() : now
+  const diffMs = Math.max(0, now - createdTime)
+  const days = Math.max(1, diffMs / (24 * 60 * 60 * 1000))
+
+  const totalRequests = Number(usage.total.requests) || 0
+  const totalTokens = Number(usage.total.allTokens) || 0
+
+  const dailyRequests = totalRequests / days
+  const dailyTokens = totalTokens / days
+
+  const rpm = dailyRequests / (24 * 60)
+  const tpm = dailyTokens / (24 * 60)
+
+  return { rpm, tpm, dailyRequests, dailyTokens }
+}
+
+const ensureUsageAverages = (usage = {}, metadata = {}) => {
+  const fallback = computeFallbackAverages(usage, metadata.createdAt || metadata.created_at)
+  const current = usage.averages || {}
+
+  usage.averages = {
+    rpm: normalizeAverageMetric(current.rpm !== undefined ? current.rpm : fallback.rpm),
+    tpm: normalizeAverageMetric(current.tpm !== undefined ? current.tpm : fallback.tpm),
+    dailyRequests: normalizeAverageMetric(
+      current.dailyRequests !== undefined ? current.dailyRequests : fallback.dailyRequests
+    ),
+    dailyTokens: normalizeAverageMetric(
+      current.dailyTokens !== undefined ? current.dailyTokens : fallback.dailyTokens
+    )
+  }
+
+  return usage.averages
+}
+
+const normalizeAccountUsage = (account) => {
+  if (!account || !account.usage) {
+    return
+  }
+
+  ensureUsageAverages(account.usage, account.metadata || {})
+}
+
 const formatAverageValue = (value, decimals = 2) => {
   if (value === null || value === undefined || Number.isNaN(Number(value))) {
     return '--'
@@ -1943,6 +2054,38 @@ const formatAverageValue = (value, decimals = 2) => {
 const formatOptionalCost = (cost) => {
   if (cost === null || cost === undefined) return '--'
   return `$${formatCost(Number(cost))}`
+}
+
+const formatTokensPerDollarMetric = (value) => {
+  if (value === null || value === undefined) return '--'
+  if (!Number.isFinite(Number(value)) || Number(value) <= 0) return '--'
+  return `${formatNumber(Number(value))}M`
+}
+
+const formatCostPerMillionMetric = (value) => {
+  if (value === null || value === undefined) return '--'
+  if (!Number.isFinite(Number(value)) || Number(value) < 0) return '--'
+  return `$${formatCost(Number(value))}`
+}
+
+const calculateTokensPerDollar = (tokens, cost) => {
+  if (cost === null || cost === undefined) return null
+  const costValue = Number(cost)
+  if (!Number.isFinite(costValue) || costValue <= 0) return null
+  const tokenValue = Number(tokens) || 0
+  if (tokenValue <= 0) return null
+  return tokenValue / costValue
+}
+
+const calculateCostPerMillion = (tokens, cost) => {
+  const tokenValue = Number(tokens) || 0
+  if (tokenValue <= 0) return null
+  const costValue = Number(cost)
+  if (!Number.isFinite(costValue) || costValue < 0) return null
+  const millions = tokenValue / 1_000_000
+  if (millions <= 0) return null
+  if (costValue === 0) return 0
+  return costValue / millions
 }
 
 const buildUsageSections = (account) => {
@@ -1962,7 +2105,7 @@ const buildUsageSections = (account) => {
       subtitle: '自然月累计',
       requests: usage.monthly?.requests || 0,
       tokens: usage.monthly?.allTokens || 0,
-      cost: null
+      cost: usage.monthly?.cost !== undefined ? usage.monthly.cost : null
     },
     {
       key: 'total',
@@ -1970,11 +2113,15 @@ const buildUsageSections = (account) => {
       subtitle: '历史累计',
       requests: usage.total?.requests || 0,
       tokens: usage.total?.allTokens || 0,
-      cost: null
+      cost: usage.total?.cost !== undefined ? usage.total.cost : null
     }
   ]
 
-  return sections
+  return sections.map((section) => ({
+    ...section,
+    tokensPerDollar: calculateTokensPerDollar(section.tokens, section.cost),
+    costPerMillion: calculateCostPerMillion(section.tokens, section.cost)
+  }))
 }
 
 // 格式化最后使用时间

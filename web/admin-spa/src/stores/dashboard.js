@@ -60,6 +60,19 @@ export const useDashboardStore = defineStore('dashboard', () => {
     totalApiKeys: 0
   })
 
+  const efficiencyLoading = ref(false)
+  const efficiencySummary = ref(null)
+  const efficiencyAccounts = ref([])
+  const efficiencyAccountsMeta = ref({ total: 0, nextOffset: 0, hasMore: false })
+  const efficiencyTrends = ref([])
+  const costEfficiencyFilters = ref({
+    range: '30d',
+    platform: 'all',
+    sortBy: 'costPerMillion',
+    order: 'asc',
+    interval: 'day'
+  })
+
   // 日期筛选
   const dateFilter = ref({
     type: 'preset', // preset 或 custom
@@ -765,6 +778,103 @@ export const useDashboardStore = defineStore('dashboard', () => {
     return date > new Date()
   }
 
+  async function loadCostEfficiencyData() {
+    if (efficiencyLoading.value) {
+      return
+    }
+
+    efficiencyLoading.value = true
+
+    try {
+      const filters = costEfficiencyFilters.value
+      const baseParams = {}
+
+      if (filters.range) {
+        baseParams.range = filters.range
+      }
+      if (filters.platform && filters.platform !== 'all') {
+        baseParams.platform = filters.platform
+      }
+      if (filters.groupId) {
+        baseParams.groupId = filters.groupId
+      }
+
+      const [summaryRes, accountsRes, trendsRes] = await Promise.all([
+        apiClient.get('/admin/dashboard/cost-efficiency/summary', { params: baseParams }),
+        apiClient.get('/admin/dashboard/cost-efficiency/accounts', {
+          params: {
+            ...baseParams,
+            sortBy: filters.sortBy,
+            order: filters.order,
+            limit: filters.limit || 12
+          }
+        }),
+        apiClient.get('/admin/dashboard/cost-efficiency/trends', {
+          params: {
+            ...baseParams,
+            interval: filters.interval || 'day'
+          }
+        })
+      ])
+
+      efficiencySummary.value = summaryRes.success ? summaryRes.data : null
+
+      if (accountsRes.success) {
+        efficiencyAccounts.value = accountsRes.data?.items || []
+        efficiencyAccountsMeta.value = {
+          total: accountsRes.data?.total || 0,
+          nextOffset: accountsRes.data?.nextOffset || 0,
+          hasMore: accountsRes.data?.hasMore || false
+        }
+      } else {
+        efficiencyAccounts.value = []
+        efficiencyAccountsMeta.value = { total: 0, nextOffset: 0, hasMore: false }
+      }
+
+      efficiencyTrends.value = trendsRes.success ? trendsRes.data?.data || [] : []
+    } catch (error) {
+      console.error('❌ 加载性价比数据失败:', error)
+      showToast('加载性价比数据失败', 'error')
+    } finally {
+      efficiencyLoading.value = false
+    }
+  }
+
+  function setCostEfficiencyRange(range) {
+    if (costEfficiencyFilters.value.range === range) {
+      return
+    }
+    costEfficiencyFilters.value.range = range
+    loadCostEfficiencyData()
+  }
+
+  function setCostEfficiencyPlatform(platform) {
+    if (costEfficiencyFilters.value.platform === platform) {
+      return
+    }
+    costEfficiencyFilters.value.platform = platform
+    loadCostEfficiencyData()
+  }
+
+  function toggleCostEfficiencySort(field) {
+    if (costEfficiencyFilters.value.sortBy === field) {
+      costEfficiencyFilters.value.order =
+        costEfficiencyFilters.value.order === 'asc' ? 'desc' : 'asc'
+    } else {
+      costEfficiencyFilters.value.sortBy = field
+      costEfficiencyFilters.value.order = field === 'cost' ? 'desc' : 'asc'
+    }
+    loadCostEfficiencyData()
+  }
+
+  function setCostEfficiencyInterval(interval) {
+    if (costEfficiencyFilters.value.interval === interval) {
+      return
+    }
+    costEfficiencyFilters.value.interval = interval
+    loadCostEfficiencyData()
+  }
+
   return {
     // 状态
     loading,
@@ -774,6 +884,12 @@ export const useDashboardStore = defineStore('dashboard', () => {
     trendData,
     dashboardModelStats,
     apiKeysTrendData,
+    efficiencyLoading,
+    efficiencySummary,
+    efficiencyAccounts,
+    efficiencyAccountsMeta,
+    efficiencyTrends,
+    costEfficiencyFilters,
     dateFilter,
     trendGranularity,
     apiKeysTrendMetric,
@@ -787,10 +903,15 @@ export const useDashboardStore = defineStore('dashboard', () => {
     loadUsageTrend,
     loadModelStats,
     loadApiKeysTrend,
+    loadCostEfficiencyData,
     setDateFilterPreset,
     onCustomDateRangeChange,
     setTrendGranularity,
     refreshChartsData,
-    disabledDate
+    disabledDate,
+    setCostEfficiencyRange,
+    setCostEfficiencyPlatform,
+    toggleCostEfficiencySort,
+    setCostEfficiencyInterval
   }
 })

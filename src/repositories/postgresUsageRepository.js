@@ -221,7 +221,14 @@ async function recordUsage(usage) {
     totalTokens = 0,
     totalCost = 0,
     costBreakdown = {},
-    metadata = {}
+    metadata = {},
+    requestStatus = 'success',
+    responseLatencyMs = 0,
+    httpStatus = null,
+    errorCode = null,
+    retries = 0,
+    clientType = null,
+    region = null
   } = usage
 
   const occurred = new Date(occurredAt)
@@ -250,9 +257,25 @@ async function recordUsage(usage) {
         total_tokens,
         total_cost,
         cost_breakdown,
-        metadata
+        metadata,
+        request_status,
+        response_latency_ms,
+        http_status,
+        error_code,
+        retries,
+        client_type,
+        region
       ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, COALESCE($16::jsonb, '{}'::jsonb), COALESCE($17::jsonb, '{}'::jsonb)
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+        COALESCE($16::jsonb, '{}'::jsonb),
+        COALESCE($17::jsonb, '{}'::jsonb),
+        $18,
+        $19,
+        $20,
+        $21,
+        $22,
+        $23,
+        $24
       )
     `,
       [
@@ -272,7 +295,14 @@ async function recordUsage(usage) {
         totalTokens,
         totalCost,
         JSON.stringify(costBreakdown),
-        JSON.stringify(metadata)
+        JSON.stringify(metadata),
+        requestStatus,
+        responseLatencyMs,
+        httpStatus,
+        errorCode,
+        retries,
+        clientType,
+        region
       ]
     )
 
@@ -362,6 +392,7 @@ async function getAccountsTotals(options = {}) {
       a.status,
       a.priority,
       a.metadata,
+      a.created_at,
       COALESCE(SUM(ur.requests), 0) AS requests,
       COALESCE(SUM(ur.total_tokens), 0) AS total_tokens,
       COALESCE(SUM(ur.total_cost), 0) AS total_cost,
@@ -386,7 +417,7 @@ async function getAccountsTotals(options = {}) {
     FROM accounts a
     LEFT JOIN usage_records ur ON ur.account_id = a.id
       ${whereClause !== '1=1' ? `AND ${whereClause}` : ''}
-    GROUP BY a.id
+    GROUP BY a.id, a.created_at
     ORDER BY ${orderField} DESC
     LIMIT ${Math.max(1, Math.min(500, limit))}
     OFFSET ${Math.max(0, offset)}
@@ -424,6 +455,8 @@ async function getAccountUsageBreakdown(accountId, options = {}) {
       COALESCE(SUM(ur.output_tokens), 0) AS output_tokens,
       COALESCE(SUM(ur.total_tokens), 0) AS total_tokens,
       COALESCE(SUM(ur.total_cost), 0) AS total_cost,
+      (ARRAY_AGG(ur.model ORDER BY ur.occurred_at DESC))[1] AS last_model,
+      (ARRAY_AGG(ur.occurred_at ORDER BY ur.occurred_at DESC))[1] AS last_occurred_at,
       MAX(ak.total_cost_limit) AS total_cost_limit,
       MAX(ak.daily_cost_limit) AS daily_cost_limit,
       MAX(ak.total_cost_accumulated) AS total_cost_accumulated,
@@ -442,6 +475,7 @@ async function getAccountUsageBreakdown(accountId, options = {}) {
 }
 
 module.exports = {
+  getRangeBounds,
   upsertAccount,
   markAccountDeleted,
   getAccountById,
