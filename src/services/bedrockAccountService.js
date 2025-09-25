@@ -5,6 +5,78 @@ const logger = require('../utils/logger')
 const config = require('../../config/config')
 const bedrockRelayService = require('./bedrockRelayService')
 const LRUCache = require('../utils/lruCache')
+const postgresUsageRepository = require('../repositories/postgresUsageRepository')
+
+function parsePriority(value, fallback = 50) {
+  if (value === undefined || value === null) {
+    return fallback
+  }
+  const parsed = parseInt(value, 10)
+  return Number.isNaN(parsed) ? fallback : parsed
+}
+
+function normalizeBoolean(value, defaultValue = true) {
+  if (value === undefined || value === null) {
+    return defaultValue
+  }
+  if (typeof value === 'boolean') {
+    return value
+  }
+  return String(value).toLowerCase() === 'true'
+}
+
+function buildBedrockAccountMetadata(account) {
+  return {
+    accountType: account.accountType || 'shared',
+    credentialType: account.credentialType || 'default',
+    schedulable: normalizeBoolean(account.schedulable, true),
+    isActive: normalizeBoolean(account.isActive, true),
+    priority: parsePriority(account.priority, 50),
+    region: account.region || '',
+    defaultModel: account.defaultModel || '',
+    hasCredentials: Boolean(account.awsCredentials),
+    createdAt: account.createdAt || '',
+    updatedAt: account.updatedAt || '',
+    description: account.description || '',
+    type: account.type || 'bedrock'
+  }
+}
+
+async function syncBedrockAccountToPostgres(accountId, snapshot = null) {
+  try {
+    const client = redis.getClientSafe()
+    let storedRaw = snapshot
+
+    if (!storedRaw) {
+      const serialized = await client.get(`bedrock_account:${accountId}`)
+      if (!serialized) {
+        return
+      }
+      storedRaw = JSON.parse(serialized)
+    }
+
+    if (!storedRaw) {
+      return
+    }
+
+    const priority = parsePriority(storedRaw.priority, 50)
+    const isActive = normalizeBoolean(storedRaw.isActive, true)
+    const status = isActive ? 'active' : 'inactive'
+
+    await postgresUsageRepository.upsertAccount({
+      id: accountId,
+      name: storedRaw.name || 'Bedrock Account',
+      type: 'bedrock',
+      platform: 'bedrock',
+      description: storedRaw.description || '',
+      status,
+      priority,
+      metadata: buildBedrockAccountMetadata(storedRaw)
+    })
+  } catch (error) {
+    logger.warn(`⚠️ Failed to sync Bedrock account ${accountId} to PostgreSQL: ${error.message}`)
+  }
+}
 
 class BedrockAccountService {
   constructor() {
@@ -68,6 +140,8 @@ class BedrockAccountService {
 
     const client = redis.getClientSafe()
     await client.set(`bedrock_account:${accountId}`, JSON.stringify(accountData))
+
+    await syncBedrockAccountToPostgres(accountId, accountData)
 
     logger.info(`✅ 创建Bedrock账户成功 - ID: ${accountId}, 名称: ${name}, 区域: ${region}`)
 
@@ -229,6 +303,8 @@ class BedrockAccountService {
 
       await client.set(`bedrock_account:${accountId}`, JSON.stringify(account))
 
+      await syncBedrockAccountToPostgres(accountId, account)
+
       logger.info(`✅ 更新Bedrock账户成功 - ID: ${accountId}, 名称: ${account.name}`)
 
       return {
@@ -264,6 +340,14 @@ class BedrockAccountService {
 
       const client = redis.getClientSafe()
       await client.del(`bedrock_account:${accountId}`)
+
+      try {
+        await postgresUsageRepository.markAccountDeleted(accountId)
+      } catch (error) {
+        logger.warn(
+          `⚠️ Failed to mark Bedrock account ${accountId} as deleted in PostgreSQL: ${error.message}`
+        )
+      }
 
       logger.info(`✅ 删除Bedrock账户成功 - ID: ${accountId}`)
 

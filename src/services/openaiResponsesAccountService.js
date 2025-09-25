@@ -4,6 +4,7 @@ const redis = require('../models/redis')
 const logger = require('../utils/logger')
 const config = require('../../config/config')
 const LRUCache = require('../utils/lruCache')
+const postgresUsageRepository = require('../repositories/postgresUsageRepository')
 
 class OpenAIResponsesAccountService {
   constructor() {
@@ -156,6 +157,8 @@ class OpenAIResponsesAccountService {
     const key = `${this.ACCOUNT_KEY_PREFIX}${accountId}`
     await client.hset(key, updates)
 
+    await syncOpenAIResponsesAccountToPostgres(accountId, client, this.ACCOUNT_KEY_PREFIX)
+
     logger.info(`📝 Updated OpenAI-Responses account: ${account.name}`)
 
     return { success: true }
@@ -171,6 +174,14 @@ class OpenAIResponsesAccountService {
 
     // 删除账户数据
     await client.del(key)
+
+    try {
+      await postgresUsageRepository.markAccountDeleted(accountId)
+    } catch (error) {
+      logger.warn(
+        `⚠️ Failed to mark OpenAI-Responses account ${accountId} as deleted in PostgreSQL: ${error.message}`
+      )
+    }
 
     logger.info(`🗑️ Deleted OpenAI-Responses account: ${accountId}`)
 
@@ -610,6 +621,91 @@ class OpenAIResponsesAccountService {
     if (accountData.accountType === 'shared') {
       await client.sadd(this.SHARED_ACCOUNTS_KEY, accountId)
     }
+
+    await syncOpenAIResponsesAccountToPostgres(
+      accountId,
+      client,
+      this.ACCOUNT_KEY_PREFIX,
+      accountData
+    )
+  }
+}
+
+function parsePriority(value, fallback = 50) {
+  if (value === undefined || value === null) {
+    return fallback
+  }
+  const parsed = parseInt(value, 10)
+  return Number.isNaN(parsed) ? fallback : parsed
+}
+
+function parseNumber(value, fallback = 0) {
+  if (value === undefined || value === null) {
+    return fallback
+  }
+  const parsed = parseFloat(value)
+  return Number.isNaN(parsed) ? fallback : parsed
+}
+
+function normalizeBoolean(value, defaultValue = true) {
+  if (value === undefined || value === null) {
+    return defaultValue
+  }
+  if (typeof value === 'boolean') {
+    return value
+  }
+  return String(value).toLowerCase() === 'true'
+}
+
+function buildOpenAIResponsesMetadata(account) {
+  return {
+    accountType: account.accountType || 'shared',
+    schedulable: normalizeBoolean(account.schedulable, true),
+    isActive: normalizeBoolean(account.isActive, true),
+    priority: parsePriority(account.priority, 50),
+    baseApi: account.baseApi || '',
+    userAgent: account.userAgent || '',
+    hasProxy: Boolean(account.proxy && account.proxy !== ''),
+    dailyQuota: parseNumber(account.dailyQuota, 0),
+    dailyUsage: parseNumber(account.dailyUsage, 0),
+    quotaResetTime: account.quotaResetTime || '00:00',
+    lastResetDate: account.lastResetDate || '',
+    rateLimitDuration: parsePriority(account.rateLimitDuration, 60),
+    rateLimitStatus: account.rateLimitStatus || '',
+    rateLimitedAt: account.rateLimitedAt || '',
+    createdAt: account.createdAt || '',
+    updatedAt: account.updatedAt || '',
+    lastUsedAt: account.lastUsedAt || '',
+    status: account.status || 'active'
+  }
+}
+
+async function syncOpenAIResponsesAccountToPostgres(accountId, client, prefix, snapshot = null) {
+  try {
+    const storedData = snapshot || (await client.hgetall(`${prefix}${accountId}`))
+
+    if (!storedData || Object.keys(storedData).length === 0) {
+      return
+    }
+
+    const priority = parsePriority(storedData.priority, 50)
+    const isActive = normalizeBoolean(storedData.isActive, true)
+    const status = isActive ? storedData.status || 'active' : 'inactive'
+
+    await postgresUsageRepository.upsertAccount({
+      id: accountId,
+      name: storedData.name || 'OpenAI Responses Account',
+      type: 'openai-responses',
+      platform: 'openai-responses',
+      description: storedData.description || '',
+      status,
+      priority,
+      metadata: buildOpenAIResponsesMetadata(storedData)
+    })
+  } catch (error) {
+    logger.warn(
+      `⚠️ Failed to sync OpenAI-Responses account ${accountId} to PostgreSQL: ${error.message}`
+    )
   }
 }
 

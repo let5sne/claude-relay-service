@@ -32,6 +32,31 @@ const config = {
     enableTLS: process.env.REDIS_ENABLE_TLS === 'true'
   },
 
+  // 🐘 PostgreSQL 配置
+  postgres: {
+    enabled: process.env.POSTGRES_ENABLED === 'true',
+    connectionString:
+      process.env.POSTGRES_URL ||
+      process.env.DATABASE_URL ||
+      process.env.POSTGRES_CONNECTION_STRING ||
+      '',
+    host: process.env.POSTGRES_HOST || '127.0.0.1',
+    port: parseInt(process.env.POSTGRES_PORT || '5432', 10),
+    user: process.env.POSTGRES_USER || process.env.POSTGRES_USERNAME || '',
+    password: process.env.POSTGRES_PASSWORD || process.env.POSTGRES_PASS || '',
+    database: process.env.POSTGRES_DB || process.env.POSTGRES_DATABASE || 'claude_relay',
+    ssl:
+      process.env.POSTGRES_SSL === 'true'
+        ? {
+            rejectUnauthorized: process.env.POSTGRES_SSL_REJECT_UNAUTHORIZED !== 'false'
+          }
+        : false,
+    max: parseInt(process.env.POSTGRES_POOL_MAX || '10', 10),
+    idleTimeoutMillis: parseInt(process.env.POSTGRES_IDLE_TIMEOUT || '30000', 10),
+    connectionTimeoutMillis: parseInt(process.env.POSTGRES_CONNECTION_TIMEOUT || '5000', 10),
+    applicationName: process.env.POSTGRES_APPLICATION_NAME || 'claude-relay-service'
+  },
+
   // 🔗 会话管理配置
   session: {
     // 粘性会话TTL配置（小时），默认1小时

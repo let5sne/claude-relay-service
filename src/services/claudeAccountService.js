@@ -16,6 +16,7 @@ const {
 const tokenRefreshService = require('./tokenRefreshService')
 const LRUCache = require('../utils/lruCache')
 const { formatDateWithTimezone, getISOStringWithTimezone } = require('../utils/dateHelper')
+const postgresUsageRepository = require('../repositories/postgresUsageRepository')
 
 class ClaudeAccountService {
   constructor() {
@@ -41,6 +42,28 @@ class ClaudeAccountService {
       },
       10 * 60 * 1000
     )
+  }
+
+  _buildAccountMetadata(accountData = {}) {
+    const parseBoolean = (value) => {
+      if (typeof value === 'boolean') {
+        return value
+      }
+      if (typeof value === 'string') {
+        return value.toLowerCase() === 'true'
+      }
+      return false
+    }
+
+    return {
+      accountType: accountData.accountType || 'shared',
+      schedulable: parseBoolean(accountData.schedulable),
+      autoStopOnWarning: parseBoolean(accountData.autoStopOnWarning),
+      useUnifiedUserAgent: parseBoolean(accountData.useUnifiedUserAgent),
+      useUnifiedClientId: parseBoolean(accountData.useUnifiedClientId),
+      status: accountData.status || 'created',
+      priority: accountData.priority ? Number(accountData.priority) : undefined
+    }
   }
 
   // 🏢 创建Claude账户
@@ -135,6 +158,23 @@ class ClaudeAccountService {
     }
 
     await redis.setClaudeAccount(accountId, accountData)
+
+    try {
+      await postgresUsageRepository.upsertAccount({
+        id: accountId,
+        name,
+        type: platform || 'claude',
+        platform: platform || 'claude',
+        description,
+        status: accountData.status || 'active',
+        priority,
+        metadata: this._buildAccountMetadata(accountData)
+      })
+    } catch (dbSyncError) {
+      logger.warn(
+        `⚠️ Failed to sync Claude account ${accountId} to PostgreSQL: ${dbSyncError.message}`
+      )
+    }
 
     logger.success(`🏢 Created Claude account: ${name} (${accountId})`)
 
@@ -644,6 +684,23 @@ class ClaudeAccountService {
 
       await redis.setClaudeAccount(accountId, updatedData)
 
+      try {
+        await postgresUsageRepository.upsertAccount({
+          id: accountId,
+          name: updatedData.name || accountData.name,
+          type: updatedData.platform || accountData.platform || 'claude',
+          platform: updatedData.platform || accountData.platform || 'claude',
+          description: updatedData.description || accountData.description,
+          status: updatedData.status || accountData.status || 'active',
+          priority: parseInt(updatedData.priority || accountData.priority || 50, 10),
+          metadata: this._buildAccountMetadata(updatedData)
+        })
+      } catch (dbSyncError) {
+        logger.warn(
+          `⚠️ Failed to sync Claude account ${accountId} update to PostgreSQL: ${dbSyncError.message}`
+        )
+      }
+
       logger.success(`📝 Updated Claude account: ${accountId}`)
 
       return { success: true }
@@ -664,6 +721,14 @@ class ClaudeAccountService {
 
       if (result === 0) {
         throw new Error('Account not found')
+      }
+
+      try {
+        await postgresUsageRepository.markAccountDeleted(accountId)
+      } catch (dbSyncError) {
+        logger.warn(
+          `⚠️ Failed to mark Claude account ${accountId} as deleted in PostgreSQL: ${dbSyncError.message}`
+        )
       }
 
       logger.success(`🗑️ Deleted Claude account: ${accountId}`)

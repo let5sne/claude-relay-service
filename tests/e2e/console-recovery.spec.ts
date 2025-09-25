@@ -12,7 +12,10 @@ async function adminLogin(request) {
 }
 
 function uniqueName(prefix: string) {
-  const ts = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14)
+  const ts = new Date()
+    .toISOString()
+    .replace(/[-:.TZ]/g, '')
+    .slice(0, 14)
   return `${prefix}-${ts}`
 }
 
@@ -39,9 +42,9 @@ test.describe.serial('Claude Console recovery actions', () => {
     accountId = created.data.id
   })
 
-  test('clear rate limit API works and account row renders', async ({ request, page }) => {
+  test('reset status API works and account row renders', async ({ request, page }) => {
     const resp = await request.post(
-      `${ROOT}/admin/claude-console-accounts/${accountId}/clear-rate-limit`,
+      `${ROOT}/admin/claude-console-accounts/${accountId}/reset-status`,
       { headers: { Authorization: `Bearer ${token}` } }
     )
     const data = await resp.json()
@@ -56,15 +59,6 @@ test.describe.serial('Claude Console recovery actions', () => {
     await expect(row).toBeVisible()
   })
 
-  test('clear overload API works', async ({ request }) => {
-    const resp = await request.post(
-      `${ROOT}/admin/claude-console-accounts/${accountId}/clear-overload`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    )
-    const data = await resp.json()
-    expect(data.success).toBeTruthy()
-  })
-
   test('reset daily usage API works', async ({ request }) => {
     const resp = await request.post(
       `${ROOT}/admin/claude-console-accounts/${accountId}/reset-usage`,
@@ -72,5 +66,22 @@ test.describe.serial('Claude Console recovery actions', () => {
     )
     const data = await resp.json()
     expect(data.success).toBeTruthy()
+  })
+
+  test('toggle scheduling API works', async ({ request }) => {
+    const resp = await request.put(
+      `${ROOT}/admin/claude-console-accounts/${accountId}/toggle-schedulable`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    )
+    const data = await resp.json()
+    expect(data.success).toBeTruthy()
+
+    // revert to original state
+    const revert = await request.put(
+      `${ROOT}/admin/claude-console-accounts/${accountId}/toggle-schedulable`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    )
+    const revertJson = await revert.json()
+    expect(revertJson.success).toBeTruthy()
   })
 })

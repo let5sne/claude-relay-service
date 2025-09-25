@@ -4,6 +4,7 @@ const config = require('../../config/config')
 const redis = require('../models/redis')
 const CostCalculator = require('../utils/costCalculator')
 const logger = require('../utils/logger')
+const postgresUsageRepository = require('../repositories/postgresUsageRepository')
 
 class ApiKeyService {
   constructor() {
@@ -88,6 +89,25 @@ class ApiKeyService {
 
     // 保存API Key数据并建立哈希映射
     await redis.setApiKey(keyId, keyData, hashedKey)
+
+    // 同步至 PostgreSQL（如果启用）
+    try {
+      await postgresUsageRepository.upsertApiKey({
+        id: keyId,
+        accountId: this._resolvePrimaryAccountId(keyData),
+        name,
+        description,
+        status: keyData.isActive === 'true' ? 'active' : 'inactive',
+        hashedKey,
+        dailyCostLimit: parseFloat(keyData.dailyCostLimit || 0),
+        totalCostLimit: parseFloat(keyData.totalCostLimit || 0),
+        lastUsedAt: keyData.lastUsedAt ? new Date(keyData.lastUsedAt) : null,
+        createdBy: keyData.createdBy || options.createdBy || 'admin',
+        metadata: this._buildApiKeyMetadata(keyData)
+      })
+    } catch (dbSyncError) {
+      logger.warn(`⚠️ Failed to sync API Key ${keyId} to PostgreSQL: ${dbSyncError.message}`)
+    }
 
     logger.success(`🔑 Generated new API key: ${name} (${keyId})`)
 
@@ -585,6 +605,26 @@ class ApiKeyService {
       // 更新时不需要重新建立哈希映射，因为API Key本身没有变化
       await redis.setApiKey(keyId, updatedData)
 
+      try {
+        await postgresUsageRepository.upsertApiKey({
+          id: keyId,
+          accountId: this._resolvePrimaryAccountId(updatedData),
+          name: updatedData.name,
+          description: updatedData.description,
+          status: updatedData.isActive === 'true' ? 'active' : 'inactive',
+          hashedKey: updatedData.apiKey,
+          dailyCostLimit: parseFloat(updatedData.dailyCostLimit || 0),
+          totalCostLimit: parseFloat(updatedData.totalCostLimit || 0),
+          lastUsedAt: updatedData.lastUsedAt ? new Date(updatedData.lastUsedAt) : null,
+          createdBy: updatedData.createdBy || null,
+          metadata: this._buildApiKeyMetadata(updatedData)
+        })
+      } catch (dbSyncError) {
+        logger.warn(
+          `⚠️ Failed to sync API Key ${keyId} update to PostgreSQL: ${dbSyncError.message}`
+        )
+      }
+
       logger.success(`📝 Updated API key: ${keyId}`)
 
       return { success: true }
@@ -613,6 +653,14 @@ class ApiKeyService {
       }
 
       await redis.setApiKey(keyId, updatedData)
+
+      try {
+        await postgresUsageRepository.markApiKeyDeleted(keyId, new Date(updatedData.deletedAt))
+      } catch (dbSyncError) {
+        logger.warn(
+          `⚠️ Failed to mark API Key ${keyId} as deleted in PostgreSQL: ${dbSyncError.message}`
+        )
+      }
 
       // 从哈希映射中移除（这样就不能再使用这个key进行API调用）
       if (keyData.apiKey) {
@@ -656,6 +704,26 @@ class ApiKeyService {
 
       // 保存更新后的数据
       await redis.setApiKey(keyId, updatedData)
+
+      try {
+        await postgresUsageRepository.upsertApiKey({
+          id: keyId,
+          accountId: this._resolvePrimaryAccountId(updatedData),
+          name: updatedData.name,
+          description: updatedData.description,
+          status: 'active',
+          hashedKey: updatedData.apiKey,
+          dailyCostLimit: parseFloat(updatedData.dailyCostLimit || 0),
+          totalCostLimit: parseFloat(updatedData.totalCostLimit || 0),
+          lastUsedAt: updatedData.lastUsedAt ? new Date(updatedData.lastUsedAt) : null,
+          createdBy: updatedData.createdBy || null,
+          metadata: this._buildApiKeyMetadata(updatedData)
+        })
+      } catch (dbSyncError) {
+        logger.warn(
+          `⚠️ Failed to sync restored API Key ${keyId} to PostgreSQL: ${dbSyncError.message}`
+        )
+      }
 
       // 使用Redis的hdel命令删除不需要的字段
       const keyName = `apikey:${keyId}`
@@ -712,6 +780,12 @@ class ApiKeyService {
 
       // 删除API Key本身
       await redis.deleteApiKey(keyId)
+
+      try {
+        await postgresUsageRepository.deleteApiKey(keyId)
+      } catch (dbSyncError) {
+        logger.warn(`⚠️ Failed to delete API Key ${keyId} from PostgreSQL: ${dbSyncError.message}`)
+      }
 
       logger.success(`🗑️ Permanently deleted API key: ${keyId}`)
 
@@ -868,6 +942,29 @@ class ApiKeyService {
         cost: Number(usageCost.toFixed(6)),
         costBreakdown: costInfo && costInfo.costs ? costInfo.costs : undefined
       })
+
+      try {
+        await postgresUsageRepository.recordUsage({
+          occurredAt: new Date(),
+          accountId,
+          apiKeyId: keyId,
+          model,
+          requests: 1,
+          inputTokens,
+          outputTokens,
+          cacheCreateTokens,
+          cacheReadTokens,
+          totalTokens,
+          totalCost: Number(usageCost.toFixed(6)),
+          costBreakdown: costInfo?.costs || {},
+          metadata: {
+            source: 'redis-sync',
+            isLongContext: isLongContextRequest
+          }
+        })
+      } catch (dbError) {
+        logger.warn(`⚠️ Failed to persist usage to PostgreSQL for key ${keyId}: ${dbError.message}`)
+      }
 
       const logParts = [`Model: ${model}`, `Input: ${inputTokens}`, `Output: ${outputTokens}`]
       if (cacheCreateTokens > 0) {
@@ -1072,6 +1169,32 @@ class ApiKeyService {
 
       await redis.addUsageRecord(keyId, usageRecord)
 
+      try {
+        await postgresUsageRepository.recordUsage({
+          occurredAt: usageRecord.timestamp,
+          accountId,
+          apiKeyId: keyId,
+          model,
+          requests: 1,
+          inputTokens,
+          outputTokens,
+          cacheCreateTokens,
+          cacheReadTokens,
+          ephemeral5mTokens: usageRecord.ephemeral5mTokens,
+          ephemeral1hTokens: usageRecord.ephemeral1hTokens,
+          totalTokens,
+          totalCost: usageRecord.cost,
+          costBreakdown: usageRecord.costBreakdown,
+          metadata: {
+            accountType: accountType || 'unknown',
+            isLongContext: usageRecord.isLongContext,
+            source: 'redis-sync'
+          }
+        })
+      } catch (dbError) {
+        logger.warn(`⚠️ Failed to persist usage to PostgreSQL for key ${keyId}: ${dbError.message}`)
+      }
+
       const logParts = [`Model: ${model}`, `Input: ${inputTokens}`, `Output: ${outputTokens}`]
       if (cacheCreateTokens > 0) {
         logParts.push(`Cache Create: ${cacheCreateTokens}`)
@@ -1102,6 +1225,51 @@ class ApiKeyService {
   // 🔐 生成密钥
   _generateSecretKey() {
     return crypto.randomBytes(32).toString('hex')
+  }
+
+  _resolvePrimaryAccountId(keyData = {}) {
+    return (
+      keyData.claudeAccountId ||
+      keyData.claudeConsoleAccountId ||
+      keyData.openaiAccountId ||
+      keyData.azureOpenaiAccountId ||
+      keyData.geminiAccountId ||
+      keyData.bedrockAccountId ||
+      keyData.accountId ||
+      null
+    )
+  }
+
+  _buildApiKeyMetadata(keyData = {}) {
+    const safeParse = (value, fallback) => {
+      if (typeof value !== 'string' || value.length === 0) {
+        return fallback
+      }
+      try {
+        return JSON.parse(value)
+      } catch (error) {
+        logger.debug('Failed to parse API key metadata field, falling back to raw string', {
+          field: value,
+          error: error.message
+        })
+        return fallback
+      }
+    }
+
+    return {
+      claudeAccountId: keyData.claudeAccountId || null,
+      claudeConsoleAccountId: keyData.claudeConsoleAccountId || null,
+      geminiAccountId: keyData.geminiAccountId || null,
+      openaiAccountId: keyData.openaiAccountId || null,
+      azureOpenaiAccountId: keyData.azureOpenaiAccountId || null,
+      bedrockAccountId: keyData.bedrockAccountId || null,
+      permissions: keyData.permissions || 'all',
+      restrictedModels: safeParse(keyData.restrictedModels, []),
+      allowedClients: safeParse(keyData.allowedClients, []),
+      tags: safeParse(keyData.tags, []),
+      userId: keyData.userId || null,
+      userUsername: keyData.userUsername || null
+    }
   }
 
   // 🔒 哈希API Key

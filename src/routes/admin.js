@@ -10,6 +10,7 @@ const openaiResponsesAccountService = require('../services/openaiResponsesAccoun
 const azureOpenaiAccountService = require('../services/azureOpenaiAccountService')
 const accountGroupService = require('../services/accountGroupService')
 const redis = require('../models/redis')
+const accountUsageService = require('../services/accountUsageService')
 const { authenticateAdmin } = require('../middleware/auth')
 const logger = require('../utils/logger')
 const oauthHelper = require('../utils/oauthHelper')
@@ -4030,23 +4031,35 @@ router.put(
 // 获取所有账户的使用统计
 router.get('/accounts/usage-stats', authenticateAdmin, async (req, res) => {
   try {
-    const accountsStats = await redis.getAllAccountsUsageStats()
+    const { range = 'total' } = req.query
+    const accountsStats = await accountUsageService.getAccountsWithUsage({ range })
+
+    const summary = accountsStats.reduce(
+      (acc, account) => {
+        acc.totalAccounts += 1
+        if ((account.usage?.today?.requests || 0) > 0) {
+          acc.activeToday += 1
+        }
+        acc.totalDailyTokens += account.usage?.today?.tokens || 0
+        acc.totalDailyRequests += account.usage?.today?.requests || 0
+        acc.totalTokens += account.usage?.total?.tokens || 0
+        acc.totalCost += account.usage?.total?.cost || 0
+        return acc
+      },
+      {
+        totalAccounts: 0,
+        activeToday: 0,
+        totalDailyTokens: 0,
+        totalDailyRequests: 0,
+        totalTokens: 0,
+        totalCost: 0
+      }
+    )
 
     return res.json({
       success: true,
       data: accountsStats,
-      summary: {
-        totalAccounts: accountsStats.length,
-        activeToday: accountsStats.filter((account) => account.daily.requests > 0).length,
-        totalDailyTokens: accountsStats.reduce(
-          (sum, account) => sum + (account.daily.allTokens || 0),
-          0
-        ),
-        totalDailyRequests: accountsStats.reduce(
-          (sum, account) => sum + (account.daily.requests || 0),
-          0
-        )
-      },
+      summary,
       timestamp: new Date().toISOString()
     })
   } catch (error) {
@@ -4063,11 +4076,16 @@ router.get('/accounts/usage-stats', authenticateAdmin, async (req, res) => {
 router.get('/accounts/:accountId/usage-stats', authenticateAdmin, async (req, res) => {
   try {
     const { accountId } = req.params
-    const accountStats = await redis.getAccountUsageStats(accountId)
+    const { range = 'total', start, end, month } = req.query
 
-    // 获取账户基本信息
-    const accountData = await claudeAccountService.getAccount(accountId)
-    if (!accountData) {
+    const summary = await accountUsageService.getAccountSummary(accountId, {
+      range,
+      start,
+      end,
+      month
+    })
+
+    if (!summary || !summary.account) {
       return res.status(404).json({
         success: false,
         error: 'Account not found'
@@ -4076,16 +4094,7 @@ router.get('/accounts/:accountId/usage-stats', authenticateAdmin, async (req, re
 
     return res.json({
       success: true,
-      data: {
-        ...accountStats,
-        accountInfo: {
-          name: accountData.name,
-          email: accountData.email,
-          status: accountData.status,
-          isActive: accountData.isActive,
-          createdAt: accountData.createdAt
-        }
-      },
+      data: summary,
       timestamp: new Date().toISOString()
     })
   } catch (error) {
@@ -4114,7 +4123,7 @@ router.get('/accounts/:accountId/usage-breakdown', authenticateAdmin, async (req
     const parsedOffset = Math.max(0, parseInt(offset, 10) || 0)
     const normalizedOrder = order === 'asc' ? 'asc' : 'desc'
 
-    const breakdown = await redis.getAccountKeyUsageBreakdown(accountId, {
+    const breakdown = await accountUsageService.getAccountBreakdown(accountId, {
       range,
       date,
       month,
@@ -4123,9 +4132,25 @@ router.get('/accounts/:accountId/usage-breakdown', authenticateAdmin, async (req
       order: normalizedOrder
     })
 
+    const items = breakdown || []
+    const aggregate = items.reduce(
+      (acc, item) => {
+        acc.total += item.requests || 0
+        acc.totalTokens += item.totalTokens || 0
+        acc.totalCost += item.totalCost || 0
+        return acc
+      },
+      { total: 0, totalTokens: 0, totalCost: 0 }
+    )
+
     return res.json({
       success: true,
-      data: breakdown
+      items,
+      total: aggregate.total,
+      totalTokens: aggregate.totalTokens,
+      totalCost: aggregate.totalCost,
+      nextOffset: parsedOffset + items.length,
+      hasMore: items.length === parsedLimit
     })
   } catch (error) {
     logger.error('❌ Failed to get account usage breakdown:', error)

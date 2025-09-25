@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 const redis = require('../src/models/redis')
+const postgres = require('../src/models/db')
 const logger = require('../src/utils/logger')
 const claudeAccountService = require('../src/services/claudeAccountService')
 const apiKeyService = require('../src/services/apiKeyService')
@@ -123,6 +124,13 @@ async function cleanTestData() {
 
 async function main() {
   try {
+    if (postgres.isEnabled()) {
+      try {
+        await postgres.initialize()
+      } catch (error) {
+        logger.warn('⚠️ PostgreSQL 未就绪，将使用 Redis 降级模式生成测试数据：', error.message)
+      }
+    }
     await redis.connect()
 
     if (shouldClean) {
@@ -136,6 +144,12 @@ async function main() {
     process.exitCode = 1
   } finally {
     await redis.disconnect()
+    if (postgres.isEnabled()) {
+      await postgres.shutdown()
+    }
+    // 由于服务层在加载时会注册 setInterval，这里显式退出，避免阻塞调用方
+    const exitCode = process.exitCode || 0
+    process.exit(exitCode)
   }
 }
 

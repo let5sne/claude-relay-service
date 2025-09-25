@@ -9,6 +9,7 @@ const bcrypt = require('bcryptjs')
 const config = require('../config/config')
 const logger = require('./utils/logger')
 const redis = require('./models/redis')
+const postgres = require('./models/db')
 const pricingService = require('./services/pricingService')
 // chore: trigger release pipeline (no functional change)
 // chore: trigger new patch release to fix docker build (attempt 2)
@@ -47,6 +48,15 @@ class Application {
 
   async initialize() {
     try {
+      // 🐘 初始化 PostgreSQL
+      try {
+        logger.info('🐘 Initializing PostgreSQL connection...')
+        await postgres.initialize()
+      } catch (err) {
+        logger.error('💥 Failed to initialize PostgreSQL:', err)
+        throw err
+      }
+
       // 🔗 连接Redis（支持可选降级启动）
       const allowStartWithoutRedis = require('../config/config').system?.allowStartWithoutRedis
       try {
@@ -636,6 +646,13 @@ class Application {
           }
 
           try {
+            await postgres.shutdown()
+            logger.info('👋 PostgreSQL disconnected')
+          } catch (error) {
+            logger.error('❌ Error disconnecting PostgreSQL:', error)
+          }
+
+          try {
             await redis.disconnect()
             logger.info('👋 Redis disconnected')
           } catch (error) {
@@ -652,6 +669,20 @@ class Application {
           process.exit(1)
         }, 10000)
       } else {
+        try {
+          await postgres.shutdown()
+          logger.info('👋 PostgreSQL disconnected')
+        } catch (error) {
+          logger.error('❌ Error disconnecting PostgreSQL:', error)
+        }
+
+        try {
+          await redis.disconnect()
+          logger.info('👋 Redis disconnected')
+        } catch (error) {
+          logger.error('❌ Error disconnecting Redis:', error)
+        }
+
         process.exit(0)
       }
     }

@@ -15,6 +15,7 @@ const {
 } = require('../utils/tokenRefreshLogger')
 const tokenRefreshService = require('./tokenRefreshService')
 const LRUCache = require('../utils/lruCache')
+const postgresUsageRepository = require('../repositories/postgresUsageRepository')
 
 // Gemini CLI OAuth 配置 - 这些是公开的 Gemini CLI 凭据
 const OAUTH_CLIENT_ID = '681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com'
@@ -32,6 +33,76 @@ let _encryptionKeyCache = null
 
 // 🔄 解密结果缓存，提高解密性能
 const decryptCache = new LRUCache(500)
+
+function parsePriority(value, fallback = 50) {
+  if (value === undefined || value === null) {
+    return fallback
+  }
+  const parsed = parseInt(value, 10)
+  return Number.isNaN(parsed) ? fallback : parsed
+}
+
+function normalizeBoolean(value, defaultValue = true) {
+  if (value === undefined || value === null) {
+    return defaultValue
+  }
+  if (typeof value === 'boolean') {
+    return value
+  }
+  return String(value).toLowerCase() === 'true'
+}
+
+function buildGeminiAccountMetadata(account) {
+  return {
+    accountType: account.accountType || 'shared',
+    schedulable: normalizeBoolean(account.schedulable, true),
+    isActive: normalizeBoolean(account.isActive, true),
+    priority: parsePriority(account.priority, 50),
+    projectId: account.projectId || '',
+    tempProjectId: account.tempProjectId || '',
+    scopes: account.scopes || '',
+    hasProxy: Boolean(account.proxy && account.proxy !== ''),
+    hasRefreshToken: Boolean(account.refreshToken),
+    hasAccessToken: Boolean(account.accessToken),
+    createdAt: account.createdAt || '',
+    updatedAt: account.updatedAt || '',
+    lastUsedAt: account.lastUsedAt || '',
+    lastRefreshAt: account.lastRefreshAt || account.lastRefresh || '',
+    expiresAt: account.expiresAt || '',
+    status: account.status || 'active',
+    supportedModels: Array.isArray(account.supportedModels)
+      ? account.supportedModels
+      : account.supportedModels || []
+  }
+}
+
+async function syncGeminiAccountToPostgres(accountId, client, snapshot = null) {
+  try {
+    const storedData =
+      snapshot || (await client.hgetall(`${GEMINI_ACCOUNT_KEY_PREFIX}${accountId}`))
+
+    if (!storedData || Object.keys(storedData).length === 0) {
+      return
+    }
+
+    const priority = parsePriority(storedData.priority, 50)
+    const isActive = normalizeBoolean(storedData.isActive, true)
+    const status = isActive ? storedData.status || 'active' : 'inactive'
+
+    await postgresUsageRepository.upsertAccount({
+      id: accountId,
+      name: storedData.name || 'Gemini Account',
+      type: 'gemini',
+      platform: 'gemini',
+      description: storedData.description || '',
+      status,
+      priority,
+      metadata: buildGeminiAccountMetadata(storedData)
+    })
+  } catch (error) {
+    logger.warn(`⚠️ Failed to sync Gemini account ${accountId} to PostgreSQL: ${error.message}`)
+  }
+}
 
 // 生成加密密钥（使用与 claudeAccountService 相同的方法）
 function generateEncryptionKey() {
@@ -416,6 +487,8 @@ async function createAccount(accountData) {
     await client.sadd(SHARED_GEMINI_ACCOUNTS_KEY, id)
   }
 
+  await syncGeminiAccountToPostgres(id, client, account)
+
   logger.info(`Created Gemini account: ${id}`)
 
   // 返回时解析代理配置
@@ -572,6 +645,8 @@ async function updateAccount(accountId, updates) {
 
   await client.hset(`${GEMINI_ACCOUNT_KEY_PREFIX}${accountId}`, updates)
 
+  await syncGeminiAccountToPostgres(accountId, client)
+
   logger.info(`Updated Gemini account: ${accountId}`)
 
   // 合并更新后的账户数据
@@ -612,6 +687,14 @@ async function deleteAccount(accountId) {
     if (mappedAccountId === accountId) {
       await client.del(key)
     }
+  }
+
+  try {
+    await postgresUsageRepository.markAccountDeleted(accountId)
+  } catch (error) {
+    logger.warn(
+      `⚠️ Failed to mark Gemini account ${accountId} as deleted in PostgreSQL: ${error.message}`
+    )
   }
 
   logger.info(`Deleted Gemini account: ${accountId}`)

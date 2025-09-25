@@ -5,6 +5,7 @@ const redis = require('../models/redis')
 const logger = require('../utils/logger')
 const config = require('../../config/config')
 const LRUCache = require('../utils/lruCache')
+const postgresUsageRepository = require('../repositories/postgresUsageRepository')
 
 class ClaudeConsoleAccountService {
   constructor() {
@@ -108,6 +109,23 @@ class ClaudeConsoleAccountService {
     // 如果是共享账户，添加到共享账户集合
     if (accountType === 'shared') {
       await client.sadd(this.SHARED_ACCOUNTS_KEY, accountId)
+    }
+
+    try {
+      await postgresUsageRepository.upsertAccount({
+        id: accountId,
+        name,
+        type: accountType || 'shared',
+        platform: 'claude-console',
+        description,
+        status: isActive ? 'active' : 'inactive',
+        priority,
+        metadata: accountData
+      })
+    } catch (error) {
+      logger.warn(
+        `⚠️ Failed to sync Claude Console account ${accountId} to PostgreSQL: ${error.message}`
+      )
     }
 
     logger.success(`🏢 Created Claude Console account: ${name} (${accountId})`)
@@ -356,6 +374,38 @@ class ClaudeConsoleAccountService {
 
       await client.hset(`${this.ACCOUNT_KEY_PREFIX}${accountId}`, updatedData)
 
+      // 同步最新账户信息到 PostgreSQL，保持双写一致性
+      try {
+        const refreshedData = await client.hgetall(`${this.ACCOUNT_KEY_PREFIX}${accountId}`)
+        const metadataPayload =
+          refreshedData && Object.keys(refreshedData).length > 0 ? refreshedData : existingAccount
+
+        const isActiveValue =
+          updates.isActive !== undefined ? updates.isActive : existingAccount.isActive
+        const isActiveNormalized =
+          isActiveValue === true || String(isActiveValue).toLowerCase() === 'true'
+
+        const rawPriority =
+          (metadataPayload && metadataPayload.priority) || existingAccount.priority || '50'
+        const parsedPriority = parseInt(rawPriority, 10)
+        const normalizedPriority = Number.isFinite(parsedPriority) ? parsedPriority : 50
+
+        await postgresUsageRepository.upsertAccount({
+          id: accountId,
+          name: metadataPayload.name || existingAccount.name || 'Claude Console Account',
+          type: metadataPayload.accountType || existingAccount.accountType || 'shared',
+          platform: 'claude-console',
+          description: metadataPayload.description || existingAccount.description || '',
+          status: isActiveNormalized ? 'active' : 'inactive',
+          priority: normalizedPriority,
+          metadata: metadataPayload
+        })
+      } catch (pgError) {
+        logger.warn(
+          `⚠️ Failed to sync Claude Console account ${accountId} update to PostgreSQL: ${pgError.message}`
+        )
+      }
+
       logger.success(`📝 Updated Claude Console account: ${accountId}`)
 
       return { success: true }
@@ -377,6 +427,15 @@ class ClaudeConsoleAccountService {
 
       // 从Redis删除
       await client.del(`${this.ACCOUNT_KEY_PREFIX}${accountId}`)
+
+      // 在 PostgreSQL 中标记删除，保持双写一致
+      try {
+        await postgresUsageRepository.markAccountDeleted(accountId)
+      } catch (pgError) {
+        logger.warn(
+          `⚠️ Failed to mark Claude Console account ${accountId} as deleted in PostgreSQL: ${pgError.message}`
+        )
+      }
 
       // 从共享账户集合中移除
       if (account.accountType === 'shared') {

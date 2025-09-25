@@ -5,6 +5,7 @@ const axios = require('axios')
 const ProxyHelper = require('../utils/proxyHelper')
 const config = require('../../config/config')
 const logger = require('../utils/logger')
+const postgresUsageRepository = require('../repositories/postgresUsageRepository')
 // const { maskToken } = require('../utils/tokenMask')
 const {
   logRefreshStart,
@@ -27,6 +28,83 @@ let _encryptionKeyCache = null
 
 // 🔄 解密结果缓存，提高解密性能
 const decryptCache = new LRUCache(500)
+
+function parsePriority(value, fallback = 50) {
+  if (value === undefined || value === null) {
+    return fallback
+  }
+  const parsed = parseInt(value, 10)
+  return Number.isNaN(parsed) ? fallback : parsed
+}
+
+function normalizeBoolean(value, defaultValue = true) {
+  if (value === undefined || value === null) {
+    return defaultValue
+  }
+  if (typeof value === 'boolean') {
+    return value
+  }
+  return String(value).toLowerCase() === 'true'
+}
+
+function buildOpenAIAccountMetadata(account) {
+  return {
+    accountType: account.accountType || 'shared',
+    schedulable: normalizeBoolean(account.schedulable, true),
+    isActive: normalizeBoolean(account.isActive, true),
+    priority: parsePriority(account.priority, 50),
+    planType: account.planType || '',
+    organizationId: account.organizationId || '',
+    organizationRole: account.organizationRole || '',
+    organizationTitle: account.organizationTitle || '',
+    projectId: account.projectId || '',
+    scopes: account.scopes || '',
+    hasProxy: Boolean(account.proxy && account.proxy !== ''),
+    hasRefreshToken: Boolean(account.refreshToken),
+    hasAccessToken: Boolean(account.accessToken),
+    hasIdToken: Boolean(account.idToken),
+    rateLimitStatus: account.rateLimitStatus || '',
+    rateLimitedAt: account.rateLimitedAt || '',
+    lastRefresh: account.lastRefresh || account.lastRefreshAt || '',
+    lastUsedAt: account.lastUsedAt || '',
+    expiresAt: account.expiresAt || '',
+    createdAt: account.createdAt || '',
+    updatedAt: account.updatedAt || '',
+    totalUsage: account.totalUsage || '',
+    emailVerified: normalizeBoolean(account.emailVerified, false),
+    maskedEmail: account.email ? '***' : '',
+    status: account.status || ''
+  }
+}
+
+async function syncOpenAIAccountToPostgres(accountId, snapshot = null) {
+  try {
+    const client = redisClient.getClientSafe()
+    const storedData =
+      snapshot || (await client.hgetall(`${OPENAI_ACCOUNT_KEY_PREFIX}${accountId}`))
+
+    if (!storedData || Object.keys(storedData).length === 0) {
+      return
+    }
+
+    const priority = parsePriority(storedData.priority, 50)
+    const isActive = normalizeBoolean(storedData.isActive, true)
+    const status = isActive ? storedData.status || 'active' : 'inactive'
+
+    await postgresUsageRepository.upsertAccount({
+      id: accountId,
+      name: storedData.name || 'OpenAI Account',
+      type: 'openai',
+      platform: 'openai',
+      description: storedData.description || '',
+      status,
+      priority,
+      metadata: buildOpenAIAccountMetadata(storedData)
+    })
+  } catch (error) {
+    logger.warn(`⚠️ Failed to sync OpenAI account ${accountId} to PostgreSQL: ${error.message}`)
+  }
+}
 
 // 生成加密密钥（使用与 claudeAccountService 相同的方法）
 function generateEncryptionKey() {
@@ -500,6 +578,8 @@ async function createAccount(accountData) {
     await client.sadd(SHARED_OPENAI_ACCOUNTS_KEY, accountId)
   }
 
+  await syncOpenAIAccountToPostgres(accountId, account)
+
   logger.info(`Created OpenAI account: ${accountId}`)
   return account
 }
@@ -600,6 +680,8 @@ async function updateAccount(accountId, updates) {
   // 合并更新后的账户数据
   const updatedAccount = { ...existingAccount, ...updates }
 
+  await syncOpenAIAccountToPostgres(accountId)
+
   // 返回时解析代理配置
   if (updatedAccount.proxy && typeof updatedAccount.proxy === 'string') {
     try {
@@ -635,6 +717,14 @@ async function deleteAccount(accountId) {
     if (mappedAccountId === accountId) {
       await client.del(key)
     }
+  }
+
+  try {
+    await postgresUsageRepository.markAccountDeleted(accountId)
+  } catch (error) {
+    logger.warn(
+      `⚠️ Failed to mark OpenAI account ${accountId} as deleted in PostgreSQL: ${error.message}`
+    )
   }
 
   logger.info(`Deleted OpenAI account: ${accountId}`)

@@ -1746,6 +1746,18 @@ const loadAccounts = async (forceReload = false) => {
       ccrData
     ] = await Promise.all(requests)
 
+    let usageStats = []
+    try {
+      const usageResponse = await apiClient.get('/admin/accounts/usage-stats', {
+        params: { range: 'total' }
+      })
+      if (usageResponse.data?.success) {
+        usageStats = usageResponse.data.data || []
+      }
+    } catch (error) {
+      console.error('Failed to load aggregated account usage stats:', error)
+    }
+
     const allAccounts = []
 
     const getGroupInfosForAccount = (account) => {
@@ -1853,6 +1865,15 @@ const loadAccounts = async (forceReload = false) => {
         })
       )
       allAccounts.push(...ccrAccounts)
+    }
+
+    if (usageStats.length > 0) {
+      const usageMap = new Map(usageStats.map((stat) => [stat.id, stat.usage || {}]))
+      allAccounts.forEach((account) => {
+        if (usageMap.has(account.id)) {
+          account.usage = usageMap.get(account.id)
+        }
+      })
     }
 
     // 根据分组筛选器过滤账户

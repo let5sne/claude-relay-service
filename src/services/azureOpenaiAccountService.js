@@ -3,6 +3,7 @@ const { v4: uuidv4 } = require('uuid')
 const crypto = require('crypto')
 const config = require('../../config/config')
 const logger = require('../utils/logger')
+const postgresUsageRepository = require('../repositories/postgresUsageRepository')
 
 // 加密相关常量
 const ALGORITHM = 'aes-256-cbc'
@@ -64,6 +65,73 @@ function generateEncryptionKey() {
 const AZURE_OPENAI_ACCOUNT_KEY_PREFIX = 'azure_openai:account:'
 const SHARED_AZURE_OPENAI_ACCOUNTS_KEY = 'shared_azure_openai_accounts'
 const ACCOUNT_SESSION_MAPPING_PREFIX = 'azure_openai_session_account_mapping:'
+
+function parsePriority(value, fallback = 50) {
+  if (value === undefined || value === null) {
+    return fallback
+  }
+  const parsed = parseInt(value, 10)
+  return Number.isNaN(parsed) ? fallback : parsed
+}
+
+function normalizeBoolean(value, defaultValue = true) {
+  if (value === undefined || value === null) {
+    return defaultValue
+  }
+  if (typeof value === 'boolean') {
+    return value
+  }
+  return String(value).toLowerCase() === 'true'
+}
+
+function buildAzureAccountMetadata(account) {
+  return {
+    accountType: account.accountType || 'shared',
+    schedulable: normalizeBoolean(account.schedulable, true),
+    isActive: normalizeBoolean(account.isActive, true),
+    priority: parsePriority(account.priority, 50),
+    azureEndpoint: account.azureEndpoint || '',
+    apiVersion: account.apiVersion || '',
+    deploymentName: account.deploymentName || '',
+    hasProxy: Boolean(account.proxy && account.proxy !== ''),
+    credentialType: account.credentialType || 'default',
+    supportedModels: account.supportedModels || '',
+    createdAt: account.createdAt || '',
+    updatedAt: account.updatedAt || '',
+    status: account.status || 'active'
+  }
+}
+
+async function syncAzureOpenAIAccountToPostgres(accountId, snapshot = null) {
+  try {
+    const client = redisClient.getClientSafe()
+    const storedData =
+      snapshot || (await client.hgetall(`${AZURE_OPENAI_ACCOUNT_KEY_PREFIX}${accountId}`))
+
+    if (!storedData || Object.keys(storedData).length === 0) {
+      return
+    }
+
+    const priority = parsePriority(storedData.priority, 50)
+    const isActive = normalizeBoolean(storedData.isActive, true)
+    const status = isActive ? storedData.status || 'active' : 'inactive'
+
+    await postgresUsageRepository.upsertAccount({
+      id: accountId,
+      name: storedData.name || 'Azure OpenAI Account',
+      type: 'azure-openai',
+      platform: 'azure-openai',
+      description: storedData.description || '',
+      status,
+      priority,
+      metadata: buildAzureAccountMetadata(storedData)
+    })
+  } catch (error) {
+    logger.warn(
+      `⚠️ Failed to sync Azure OpenAI account ${accountId} to PostgreSQL: ${error.message}`
+    )
+  }
+}
 
 // 加密函数
 function encrypt(text) {
@@ -151,6 +219,8 @@ async function createAccount(accountData) {
     await client.sadd(SHARED_AZURE_OPENAI_ACCOUNTS_KEY, accountId)
   }
 
+  await syncAzureOpenAIAccountToPostgres(accountId, account)
+
   logger.info(`Created Azure OpenAI account: ${accountId}`)
   return account
 }
@@ -235,6 +305,8 @@ async function updateAccount(accountId, updates) {
   // 合并更新后的账户数据
   const updatedAccount = { ...existingAccount, ...updates }
 
+  await syncAzureOpenAIAccountToPostgres(accountId)
+
   // 返回时解析代理配置
   if (updatedAccount.proxy && typeof updatedAccount.proxy === 'string') {
     try {
@@ -261,6 +333,14 @@ async function deleteAccount(accountId) {
 
   // 从共享账户集合中移除
   await client.srem(SHARED_AZURE_OPENAI_ACCOUNTS_KEY, accountId)
+
+  try {
+    await postgresUsageRepository.markAccountDeleted(accountId)
+  } catch (error) {
+    logger.warn(
+      `⚠️ Failed to mark Azure OpenAI account ${accountId} as deleted in PostgreSQL: ${error.message}`
+    )
+  }
 
   logger.info(`Deleted Azure OpenAI account: ${accountId}`)
   return true

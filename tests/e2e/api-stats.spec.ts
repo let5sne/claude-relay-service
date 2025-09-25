@@ -13,6 +13,7 @@ test('invalid API key shows error on stats page', async ({ page }) => {
   await page.getByRole('button', { name: '查询统计' }).click()
 
   // Expect an error box to appear with message, typically 'API key not found'
-  await expect(page.getByText(/API key not found|请求失败|查询失败|401/i)).toBeVisible()
+  await expect(
+    page.getByText(/Invalid API key format|API key not found|请求失败|查询失败|401/i)
+  ).toBeVisible()
 })
-

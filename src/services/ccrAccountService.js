@@ -5,6 +5,81 @@ const redis = require('../models/redis')
 const logger = require('../utils/logger')
 const config = require('../../config/config')
 const LRUCache = require('../utils/lruCache')
+const postgresUsageRepository = require('../repositories/postgresUsageRepository')
+
+function parsePriority(value, fallback = 50) {
+  if (value === undefined || value === null) {
+    return fallback
+  }
+  const parsed = parseInt(value, 10)
+  return Number.isNaN(parsed) ? fallback : parsed
+}
+
+function parseNumber(value, fallback = 0) {
+  if (value === undefined || value === null) {
+    return fallback
+  }
+  const parsed = parseFloat(value)
+  return Number.isNaN(parsed) ? fallback : parsed
+}
+
+function normalizeBoolean(value, defaultValue = true) {
+  if (value === undefined || value === null) {
+    return defaultValue
+  }
+  if (typeof value === 'boolean') {
+    return value
+  }
+  return String(value).toLowerCase() === 'true'
+}
+
+function buildCcrAccountMetadata(account) {
+  return {
+    accountType: account.accountType || 'shared',
+    schedulable: normalizeBoolean(account.schedulable, true),
+    isActive: normalizeBoolean(account.isActive, true),
+    priority: parsePriority(account.priority, 50),
+    dailyQuota: parseNumber(account.dailyQuota, 0),
+    dailyUsage: parseNumber(account.dailyUsage, 0),
+    quotaResetTime: account.quotaResetTime || '00:00',
+    lastResetDate: account.lastResetDate || '',
+    rateLimitDuration: parsePriority(account.rateLimitDuration, 60),
+    rateLimitStatus: account.rateLimitStatus || '',
+    rateLimitedAt: account.rateLimitedAt || '',
+    hasProxy: Boolean(account.proxy && account.proxy !== ''),
+    lastUsedAt: account.lastUsedAt || '',
+    createdAt: account.createdAt || '',
+    status: account.status || 'active',
+    supportedModels: account.supportedModels || '[]'
+  }
+}
+
+async function syncCcrAccountToPostgres(accountId, client, prefix, snapshot = null) {
+  try {
+    const storedData = snapshot || (await client.hgetall(`${prefix}${accountId}`))
+
+    if (!storedData || Object.keys(storedData).length === 0) {
+      return
+    }
+
+    const priority = parsePriority(storedData.priority, 50)
+    const isActive = normalizeBoolean(storedData.isActive, true)
+    const status = isActive ? storedData.status || 'active' : 'inactive'
+
+    await postgresUsageRepository.upsertAccount({
+      id: accountId,
+      name: storedData.name || 'CCR Account',
+      type: 'ccr',
+      platform: 'ccr',
+      description: storedData.description || '',
+      status,
+      priority,
+      metadata: buildCcrAccountMetadata(storedData)
+    })
+  } catch (error) {
+    logger.warn(`⚠️ Failed to sync CCR account ${accountId} to PostgreSQL: ${error.message}`)
+  }
+}
 
 class CcrAccountService {
   constructor() {
@@ -106,6 +181,8 @@ class CcrAccountService {
     if (accountType === 'shared') {
       await client.sadd(this.SHARED_ACCOUNTS_KEY, accountId)
     }
+
+    await syncCcrAccountToPostgres(accountId, client, this.ACCOUNT_KEY_PREFIX, accountData)
 
     logger.success(`🏢 Created CCR account: ${name} (${accountId})`)
 
@@ -300,6 +377,8 @@ class CcrAccountService {
         }
       }
 
+      await syncCcrAccountToPostgres(accountId, client, this.ACCOUNT_KEY_PREFIX)
+
       logger.success(`📝 Updated CCR account: ${accountId}`)
       return await this.getAccount(accountId)
     } catch (error) {
@@ -321,6 +400,14 @@ class CcrAccountService {
 
       if (result === 0) {
         throw new Error('CCR Account not found or already deleted')
+      }
+
+      try {
+        await postgresUsageRepository.markAccountDeleted(accountId)
+      } catch (pgError) {
+        logger.warn(
+          `⚠️ Failed to mark CCR account ${accountId} as deleted in PostgreSQL: ${pgError.message}`
+        )
       }
 
       logger.success(`🗑️ Deleted CCR account: ${accountId}`)
