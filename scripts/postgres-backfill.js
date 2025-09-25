@@ -69,6 +69,23 @@ function normalizeAccounts(raw) {
 }
 
 const ensuredAccountIds = new Set()
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+const sanitizeAccountId = (raw) => {
+  if (!raw) {
+    return null
+  }
+  const str = String(raw).trim()
+  if (!str) {
+    return null
+  }
+
+  const cleaned = str.includes(':') ? str.split(':').pop() : str
+  if (!UUID_REGEX.test(cleaned)) {
+    return null
+  }
+  return cleaned
+}
 
 const platformFetchers = [
   {
@@ -128,22 +145,22 @@ const platformFetchers = [
 
 function inferPlatformsForKey(key, accountId) {
   const candidates = []
-  if (key.claudeAccountId && key.claudeAccountId === accountId) {
+  if (sanitizeAccountId(key.claudeAccountId) === accountId) {
     candidates.push('claude')
   }
-  if (key.claudeConsoleAccountId && key.claudeConsoleAccountId === accountId) {
+  if (sanitizeAccountId(key.claudeConsoleAccountId) === accountId) {
     candidates.push('claude-console')
   }
-  if (key.geminiAccountId && key.geminiAccountId === accountId) {
+  if (sanitizeAccountId(key.geminiAccountId) === accountId) {
     candidates.push('gemini')
   }
-  if (key.bedrockAccountId && key.bedrockAccountId === accountId) {
+  if (sanitizeAccountId(key.bedrockAccountId) === accountId) {
     candidates.push('bedrock')
   }
-  if (key.openaiAccountId && key.openaiAccountId === accountId) {
+  if (sanitizeAccountId(key.openaiAccountId) === accountId) {
     candidates.push('openai')
   }
-  if (key.azureOpenaiAccountId && key.azureOpenaiAccountId === accountId) {
+  if (sanitizeAccountId(key.azureOpenaiAccountId) === accountId) {
     candidates.push('azure-openai')
   }
   if (key.accountPlatform && typeof key.accountPlatform === 'string') {
@@ -152,7 +169,8 @@ function inferPlatformsForKey(key, accountId) {
   return candidates
 }
 
-async function ensureAccountForKey(key, accountId) {
+async function ensureAccountForKey(key, accountIdRaw) {
+  const accountId = sanitizeAccountId(accountIdRaw)
   if (!accountId) {
     return
   }
@@ -328,7 +346,7 @@ async function backfillApiKeys() {
   for (const key of apiKeys) {
     const candidateAccountIds = new Set()
     if (apiKeyService._resolvePrimaryAccountId) {
-      const resolved = apiKeyService._resolvePrimaryAccountId(key)
+      const resolved = sanitizeAccountId(apiKeyService._resolvePrimaryAccountId(key))
       if (resolved) {
         candidateAccountIds.add(resolved)
       }
@@ -345,8 +363,9 @@ async function backfillApiKeys() {
     ]
 
     for (const field of accountFieldCandidates) {
-      if (key[field]) {
-        candidateAccountIds.add(key[field])
+      const sanitized = sanitizeAccountId(key[field])
+      if (sanitized) {
+        candidateAccountIds.add(sanitized)
       }
     }
 
