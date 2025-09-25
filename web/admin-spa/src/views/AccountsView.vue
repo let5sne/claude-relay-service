@@ -708,6 +708,85 @@
                   <div v-else-if="account.platform === 'claude'" class="text-sm text-gray-400">
                     <i class="fas fa-minus" />
                   </div>
+                  <div v-else-if="account.platform === 'openai'" class="space-y-2">
+                    <div v-if="account.codexUsage" class="space-y-2">
+                      <div class="rounded-lg bg-gray-50 p-2 dark:bg-gray-700/70">
+                        <div class="flex items-center gap-2">
+                          <span
+                            class="inline-flex min-w-[32px] justify-center rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-medium text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300"
+                          >
+                            {{ getCodexWindowLabel('primary') }}
+                          </span>
+                          <div class="flex-1">
+                            <div class="flex items-center gap-2">
+                              <div class="h-2 flex-1 rounded-full bg-gray-200 dark:bg-gray-600">
+                                <div
+                                  :class="[
+                                    'h-2 rounded-full transition-all duration-300',
+                                    getCodexUsageBarClass(account.codexUsage.primary.usedPercent)
+                                  ]"
+                                  :style="{
+                                    width: getCodexUsageWidth(
+                                      account.codexUsage.primary.usedPercent
+                                    )
+                                  }"
+                                />
+                              </div>
+                              <span
+                                class="w-12 text-right text-xs font-semibold text-gray-800 dark:text-gray-100"
+                              >
+                                {{
+                                  formatCodexUsagePercent(account.codexUsage.primary.usedPercent)
+                                }}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        <div class="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+                          重置剩余 {{ formatCodexRemaining(account.codexUsage.primary) }}
+                        </div>
+                      </div>
+                      <div class="rounded-lg bg-gray-50 p-2 dark:bg-gray-700/70">
+                        <div class="flex items-center gap-2">
+                          <span
+                            class="inline-flex min-w-[32px] justify-center rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-medium text-blue-600 dark:bg-blue-500/20 dark:text-blue-300"
+                          >
+                            {{ getCodexWindowLabel('secondary') }}
+                          </span>
+                          <div class="flex-1">
+                            <div class="flex items-center gap-2">
+                              <div class="h-2 flex-1 rounded-full bg-gray-200 dark:bg-gray-600">
+                                <div
+                                  :class="[
+                                    'h-2 rounded-full transition-all duration-300',
+                                    getCodexUsageBarClass(account.codexUsage.secondary.usedPercent)
+                                  ]"
+                                  :style="{
+                                    width: getCodexUsageWidth(
+                                      account.codexUsage.secondary.usedPercent
+                                    )
+                                  }"
+                                />
+                              </div>
+                              <span
+                                class="w-12 text-right text-xs font-semibold text-gray-800 dark:text-gray-100"
+                              >
+                                {{
+                                  formatCodexUsagePercent(account.codexUsage.secondary.usedPercent)
+                                }}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        <div class="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+                          重置剩余 {{ formatCodexRemaining(account.codexUsage.secondary) }}
+                        </div>
+                      </div>
+                    </div>
+                    <div v-else class="text-sm text-gray-400">
+                      <span class="text-xs">N/A</span>
+                    </div>
+                  </div>
                   <div v-else class="text-sm text-gray-400">
                     <span class="text-xs">N/A</span>
                   </div>

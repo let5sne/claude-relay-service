@@ -253,6 +253,24 @@ jobs:
           git tag -a "$NEW_TAG" -m "Release $NEW_TAG"
           git push origin HEAD:main "$NEW_TAG"
 
+      - name: Prepare image names
+        if: steps.check.outputs.needs_bump == 'true'
+        id: image_names
+        run: |
+          DOCKER_USERNAME="${{ secrets.DOCKERHUB_USERNAME || secrets.DOCKER_USERNAME }}"
+          if [ -z "$DOCKER_USERNAME" ]; then
+            DOCKER_USERNAME="let5see"
+          fi
+
+          DOCKER_IMAGE=$(echo "${DOCKER_USERNAME}/claude-relay-service" | tr '[:upper:]' '[:lower:]')
+          GHCR_IMAGE=$(echo "ghcr.io/${{ github.repository_owner }}/claude-relay-service" | tr '[:upper:]' '[:lower:]')
+
+          {
+            echo "docker_username=${DOCKER_USERNAME}"
+            echo "docker_image=${DOCKER_IMAGE}"
+            echo "ghcr_image=${GHCR_IMAGE}"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Create GitHub Release
         if: steps.check.outputs.needs_bump == 'true'
         uses: softprops/action-gh-release@v1
@@ -263,8 +281,10 @@ jobs:
             ## 🐳 Docker 镜像
 
             ```bash
-            docker pull ${{ secrets.DOCKERHUB_USERNAME || 'let5see' }}/claude-relay-service:${{ steps.next_version.outputs.new_tag }}
-            docker pull ${{ secrets.DOCKERHUB_USERNAME || 'let5see' }}/claude-relay-service:latest
+            docker pull ${{ steps.image_names.outputs.docker_image }}:${{ steps.next_version.outputs.new_tag }}
+            docker pull ${{ steps.image_names.outputs.docker_image }}:latest
+            docker pull ${{ steps.image_names.outputs.ghcr_image }}:${{ steps.next_version.outputs.new_tag }}
+            docker pull ${{ steps.image_names.outputs.ghcr_image }}:latest
             ```
 
             ## 📦 主要更新
@@ -392,13 +412,13 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: docker.io
-          username: ${{ secrets.DOCKERHUB_USERNAME || secrets.DOCKER_USERNAME || 'let5see' }}
+          username: ${{ steps.image_names.outputs.docker_username }}
           password: ${{ secrets.DOCKERHUB_TOKEN || secrets.DOCKERHUB_PASSWORD || secrets.DOCKER_HUB_TOKEN || secrets.DOCKER_HUB_PASSWORD || secrets.DOCKER_PASSWORD }}
 
       - name: Validate Docker Hub credentials
         if: steps.check.outputs.needs_bump == 'true'
         env:
-          DH_USER: ${{ secrets.DOCKERHUB_USERNAME || secrets.DOCKER_USERNAME || 'let5see' }}
+          DH_USER: ${{ steps.image_names.outputs.docker_username }}
           DH_PASS: ${{ secrets.DOCKERHUB_TOKEN || secrets.DOCKERHUB_PASSWORD || secrets.DOCKER_HUB_TOKEN || secrets.DOCKER_HUB_PASSWORD || secrets.DOCKER_PASSWORD }}
         run: |
           if [ -z "$DH_PASS" ]; then
@@ -406,6 +426,14 @@ jobs:
             exit 1
           fi
           echo "Using Docker Hub user: $DH_USER"
+
+      - name: Log in to GitHub Container Registry
+        if: steps.check.outputs.needs_bump == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push Docker image
         if: steps.check.outputs.needs_bump == 'true'
@@ -416,12 +444,16 @@ jobs:
           push: true
           provenance: false
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME || secrets.DOCKER_USERNAME || 'let5see' }}/claude-relay-service:${{ steps.next_version.outputs.new_tag }}
-            ${{ secrets.DOCKERHUB_USERNAME || secrets.DOCKER_USERNAME || 'let5see' }}/claude-relay-service:latest
-            ${{ secrets.DOCKERHUB_USERNAME || secrets.DOCKER_USERNAME || 'let5see' }}/claude-relay-service:${{ steps.next_version.outputs.new_version }}
+            ${{ steps.image_names.outputs.docker_image }}:${{ steps.next_version.outputs.new_tag }}
+            ${{ steps.image_names.outputs.docker_image }}:latest
+            ${{ steps.image_names.outputs.docker_image }}:${{ steps.next_version.outputs.new_version }}
+            ${{ steps.image_names.outputs.ghcr_image }}:${{ steps.next_version.outputs.new_tag }}
+            ${{ steps.image_names.outputs.ghcr_image }}:latest
+            ${{ steps.image_names.outputs.ghcr_image }}:${{ steps.next_version.outputs.new_version }}
           labels: |
             org.opencontainers.image.version=${{ steps.next_version.outputs.new_version }}
             org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -430,6 +462,8 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          DOCKER_IMAGE: ${{ steps.image_names.outputs.docker_image }}
+          GHCR_IMAGE: ${{ steps.image_names.outputs.ghcr_image }}
         continue-on-error: true
         run: |
           VERSION="${{ steps.next_version.outputs.new_version }}"
@@ -450,13 +484,16 @@ jobs:
           MESSAGE+="${CHANGELOG_TRUNCATED}"$'\n'$'\n'
           MESSAGE+="🐳 *Docker 部署:*"$'\n'
           MESSAGE+="\`\`\`bash"$'\n'
-          MESSAGE+="docker pull let5see/claude-relay-service:${TAG}"$'\n'
-          MESSAGE+="docker pull let5see/claude-relay-service:latest"$'\n'
+          MESSAGE+="docker pull ${DOCKER_IMAGE}:${TAG}"$'\n'
+          MESSAGE+="docker pull ${DOCKER_IMAGE}:latest"$'\n'
+          MESSAGE+="docker pull ${GHCR_IMAGE}:${TAG}"$'\n'
+          MESSAGE+="docker pull ${GHCR_IMAGE}:latest"$'\n'
           MESSAGE+="\`\`\`"$'\n'$'\n'
           MESSAGE+="🔗 *相关链接:*"$'\n'
           MESSAGE+="• [GitHub Release](https://github.com/${REPO}/releases/tag/${TAG})"$'\n'
           MESSAGE+="• [完整更新日志](https://github.com/${REPO}/releases)"$'\n'
-          MESSAGE+="• [Docker Hub](https://hub.docker.com/r/let5see/claude-relay-service)"$'\n'$'\n'
+          MESSAGE+="• [Docker Hub](https://hub.docker.com/r/${DOCKER_IMAGE%/*}/claude-relay-service)"$'\n'
+          MESSAGE+="• [GHCR](https://ghcr.io/${GHCR_IMAGE#ghcr.io/})"$'\n'$'\n'
           MESSAGE+="#ClaudeRelay #Update #v${VERSION//./_}"
 
           # 使用 jq 构建 JSON 并发送
