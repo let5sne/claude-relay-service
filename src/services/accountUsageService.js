@@ -13,6 +13,89 @@ function normalizeNumber(value) {
   return Number.isFinite(num) ? num : 0
 }
 
+function buildUsageObject(rawUsage = {}) {
+  const normalizeCost = (cost) => {
+    if (cost === null || cost === undefined) {
+      return null
+    }
+    const value = Number(cost)
+    return Number.isFinite(value) ? value : null
+  }
+
+  const normalizeSection = (section = {}) => ({
+    requests: normalizeNumber(section.requests),
+    allTokens: normalizeNumber(section.allTokens),
+    cost: normalizeCost(section.cost)
+  })
+
+  return {
+    daily: normalizeSection(rawUsage.daily),
+    monthly: normalizeSection(rawUsage.monthly),
+    total: normalizeSection(rawUsage.total)
+  }
+}
+
+function computeUsageAverages({ usage, createdAt }) {
+  if (!usage || !usage.total) {
+    return {}
+  }
+
+  let referenceDate = null
+  if (createdAt) {
+    try {
+      referenceDate = new Date(createdAt)
+      if (Number.isNaN(referenceDate.getTime())) {
+        referenceDate = null
+      }
+    } catch (error) {
+      referenceDate = null
+    }
+  }
+
+  const now = Date.now()
+  const createdTime = referenceDate ? referenceDate.getTime() : now
+  const diffMs = Math.max(0, now - createdTime)
+  const days = Math.max(1, diffMs / (24 * 60 * 60 * 1000))
+
+  const totalRequests = normalizeNumber(usage.total.requests)
+  const totalTokens = normalizeNumber(usage.total.allTokens)
+
+  const dailyRequests = totalRequests / days
+  const dailyTokens = totalTokens / days
+
+  const rpm = dailyRequests / (24 * 60)
+  const tpm = dailyTokens / (24 * 60)
+
+  return {
+    rpm,
+    tpm,
+    dailyRequests,
+    dailyTokens
+  }
+}
+
+function normalizeAverageMetric(value) {
+  if (value === null || value === undefined) {
+    return 0
+  }
+
+  const num = Number(value)
+  if (!Number.isFinite(num) || num < 0) {
+    return 0
+  }
+
+  return num
+}
+
+function mergeUsageAverages(primary = {}, secondary = {}) {
+  return {
+    rpm: normalizeAverageMetric(primary.rpm ?? secondary.rpm),
+    tpm: normalizeAverageMetric(primary.tpm ?? secondary.tpm),
+    dailyRequests: normalizeAverageMetric(primary.dailyRequests ?? secondary.dailyRequests),
+    dailyTokens: normalizeAverageMetric(primary.dailyTokens ?? secondary.dailyTokens)
+  }
+}
+
 async function getAccountInfo(accountId) {
   try {
     if (db.isEnabled()) {
@@ -63,58 +146,69 @@ async function getAccountInfo(accountId) {
 async function getAccountsWithUsage(options = {}) {
   if (db.isEnabled()) {
     const rows = await postgresUsageRepository.getAccountsTotals(options)
-    return rows.map((row) => ({
-      id: row.id,
-      name: row.name,
-      type: row.type,
-      platform: row.platform,
-      status: row.status,
-      priority: row.priority,
-      metadata: row.metadata || {},
-      usage: {
+    return rows.map((row) => {
+      const metadata = row.metadata || {}
+      const usage = buildUsageObject({
         daily: {
-          requests: normalizeNumber(row.daily_requests),
-          allTokens: normalizeNumber(row.daily_tokens),
-          cost: normalizeNumber(row.daily_cost)
+          requests: row.daily_requests,
+          allTokens: row.daily_tokens,
+          cost: row.daily_cost
         },
         monthly: {
-          requests: normalizeNumber(row.monthly_requests),
-          allTokens: normalizeNumber(row.monthly_tokens),
-          cost: normalizeNumber(row.monthly_cost)
+          requests: row.monthly_requests,
+          allTokens: row.monthly_tokens,
+          cost: row.monthly_cost
         },
         total: {
-          requests: normalizeNumber(row.requests),
-          allTokens: normalizeNumber(row.total_tokens),
-          cost: normalizeNumber(row.total_cost)
+          requests: row.requests,
+          allTokens: row.total_tokens,
+          cost: row.total_cost
         }
+      })
+
+      if (!metadata.createdAt && row.created_at) {
+        metadata.createdAt = row.created_at
       }
-    }))
+
+      const computedAverages = computeUsageAverages({
+        usage,
+        createdAt: metadata.createdAt
+      })
+
+      usage.averages = mergeUsageAverages(computedAverages)
+
+      return {
+        id: row.id,
+        name: row.name,
+        type: row.type,
+        platform: row.platform,
+        status: row.status,
+        priority: row.priority,
+        metadata,
+        usage
+      }
+    })
   }
 
   const fallbackStats = await redis.getAllAccountsUsageStats()
-  return fallbackStats.map((item) => ({
-    id: item.accountId,
-    name: item.name || item.accountName || item.accountId,
-    type: item.platform || item.accountType || 'claude',
-    status: item.status || (item.isActive ? 'active' : 'disabled'),
-    usage: {
-      daily: {
-        requests: normalizeNumber(item.daily?.requests),
-        allTokens: normalizeNumber(item.daily?.allTokens),
-        cost: normalizeNumber(item.daily?.cost)
-      },
-      monthly: {
-        requests: normalizeNumber(item.monthly?.requests),
-        allTokens: normalizeNumber(item.monthly?.allTokens),
-        cost: normalizeNumber(item.monthly?.cost)
-      },
-      total: {
-        requests: normalizeNumber(item.total?.requests),
-        allTokens: normalizeNumber(item.total?.allTokens),
-        cost: normalizeNumber(item.total?.cost)
-      }
+  return fallbackStats.map((item) => {
+    const usage = buildUsageObject({
+      daily: item.daily,
+      monthly: item.monthly,
+      total: item.total
+    })
+
+    const computedAverages = computeUsageAverages({ usage, createdAt: item.createdAt })
+    usage.averages = mergeUsageAverages(computedAverages, item.averages)
+
+    return {
+      id: item.accountId,
+      name: item.name || item.accountName || item.accountId,
+      type: item.platform || item.accountType || 'claude',
+      status: item.status || (item.isActive ? 'active' : 'disabled'),
+      usage
     }
-  }))
+  })
 }
 
 async function getAccountSummary(accountId, options = {}) {
@@ -184,10 +278,13 @@ async function getAccountBreakdown(accountId, options = {}) {
           outputTokens: normalizeNumber(row.output_tokens),
           totalTokens: normalizeNumber(row.total_tokens),
           totalCost: normalizeNumber(row.total_cost),
+          cost: normalizeNumber(row.total_cost),
           totalCostLimit: row.total_cost_limit,
           dailyCostLimit: row.daily_cost_limit,
           totalCostAccumulated: row.total_cost_accumulated,
-          lastUsedAt: row.last_used_at
+          lastModel: row.last_model || null,
+          lastUsedAt: row.last_occurred_at || row.last_used_at,
+          updatedAt: row.last_occurred_at || row.last_used_at
         }
       })
     )

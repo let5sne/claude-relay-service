@@ -442,6 +442,40 @@ async function backfillUsageRecords() {
       }
 
       try {
+        const requestStatus =
+          record.requestStatus ||
+          record.request_status ||
+          record.status ||
+          (record.error || record.error_code ? 'error' : 'success')
+
+        const responseLatencyMs =
+          record.responseLatencyMs ||
+          record.response_latency_ms ||
+          record.latencyMs ||
+          record.latency_ms ||
+          record.durationMs ||
+          record.duration_ms ||
+          0
+
+        const httpStatus =
+          record.httpStatus ||
+          record.http_status ||
+          record.status_code ||
+          record.response_status ||
+          null
+
+        const errorCode =
+          record.errorCode ||
+          record.error_code ||
+          (record.error && record.error.code) ||
+          record.error_type ||
+          null
+
+        const retries = record.retries || record.retry_count || record.attempts || 0
+
+        const clientType = record.clientType || record.client_type || null
+        const region = record.region || record.zone || null
+
         await postgresRepo.recordUsage({
           occurredAt: record.timestamp,
           accountId: record.accountId || null,
@@ -463,7 +497,14 @@ async function backfillUsageRecords() {
               (record.cacheReadTokens || 0),
           totalCost: record.cost || record.totalCost || 0,
           costBreakdown: record.costBreakdown || {},
-          metadata: { source: 'redis-backfill' }
+          metadata: { source: 'redis-backfill' },
+          requestStatus,
+          responseLatencyMs,
+          httpStatus,
+          errorCode,
+          retries,
+          clientType,
+          region
         })
       } catch (error) {
         logger.error(`❌ Failed to insert usage record for ${keyId}:`, error)

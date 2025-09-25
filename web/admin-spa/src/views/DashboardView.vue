@@ -621,6 +621,248 @@
         </div>
       </div>
     </div>
+
+    <!-- 账户性价比分析 -->
+    <div class="mb-10">
+      <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h3 class="text-lg font-bold text-gray-900 dark:text-gray-100 sm:text-xl">
+            账户性价比分析
+          </h3>
+          <p class="text-sm text-gray-500 dark:text-gray-400">按成本与成功率综合评估各账户表现</p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <div class="flex gap-1 rounded-lg bg-gray-100 p-1 dark:bg-gray-700">
+            <button
+              v-for="option in efficiencyRangeOptions"
+              :key="option.value"
+              :class="[
+                'rounded-md px-3 py-1 text-sm font-medium transition-colors',
+                efficiencyRangeValue === option.value
+                  ? 'bg-white text-blue-600 shadow-sm dark:bg-gray-800'
+                  : 'text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100'
+              ]"
+              @click="setCostEfficiencyRange(option.value)"
+            >
+              {{ option.label }}
+            </button>
+          </div>
+          <select
+            class="rounded-md border border-gray-300 bg-white px-3 py-1 text-sm text-gray-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
+            :value="efficiencyPlatformValue"
+            @change="setCostEfficiencyPlatform($event.target.value)"
+          >
+            <option
+              v-for="option in efficiencyPlatformOptions"
+              :key="option.value"
+              :value="option.value"
+            >
+              {{ option.label }}
+            </option>
+          </select>
+          <button
+            class="inline-flex items-center rounded-md border border-gray-200 bg-white px-3 py-1 text-sm text-gray-600 transition-colors hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:text-blue-400"
+            :disabled="efficiencyLoading"
+            @click="loadCostEfficiencyData()"
+          >
+            <i class="fas fa-sync-alt" :class="{ 'animate-spin': efficiencyLoading }" />
+          </button>
+        </div>
+      </div>
+
+      <div
+        v-if="efficiencyLoading"
+        class="flex h-40 items-center justify-center rounded-lg border border-dashed border-gray-300 bg-white text-sm text-gray-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
+      >
+        <i class="fas fa-circle-notch mr-2 animate-spin" /> 正在加载性价比数据...
+      </div>
+      <div v-else>
+        <div class="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
+          <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+            <div v-for="card in efficiencyHighlightCards" :key="card.key" class="card p-4">
+              <p class="text-xs font-semibold text-gray-500 dark:text-gray-400">
+                {{ card.label }}
+              </p>
+              <p class="mt-2 text-2xl font-bold text-gray-900 dark:text-gray-100">
+                {{ card.value }}
+              </p>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {{ card.description }}
+              </p>
+            </div>
+          </div>
+          <div class="card p-4 sm:p-6">
+            <div class="mb-4 flex items-center justify-between">
+              <h4 class="text-base font-semibold text-gray-900 dark:text-gray-100">
+                成本 vs 成功率
+              </h4>
+              <span
+                v-if="efficiencyAccountsMeta.total"
+                class="text-xs text-gray-500 dark:text-gray-400"
+              >
+                共 {{ efficiencyAccountsMeta.total }} 个账户
+              </span>
+            </div>
+            <div v-if="hasEfficiencyData" class="h-72 sm:h-80">
+              <canvas ref="costEfficiencyChart" />
+            </div>
+            <div
+              v-else
+              class="flex h-36 items-center justify-center rounded-lg bg-gray-50 text-xs text-gray-500 dark:bg-gray-800 dark:text-gray-400"
+            >
+              暂无符合筛选条件的数据
+            </div>
+            <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+              泡泡大小表示请求量，颜色代表平台。
+            </p>
+          </div>
+        </div>
+
+        <div class="card mt-6 p-4 sm:p-6">
+          <div class="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <h4 class="text-base font-semibold text-gray-900 dark:text-gray-100">账户性价比排行</h4>
+            <div class="flex flex-wrap items-center gap-2">
+              <button
+                :class="[
+                  'rounded-md px-3 py-1 text-xs font-medium transition-colors sm:text-sm',
+                  costEfficiencyFilters.sortBy === 'tokensPerDollar'
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300'
+                ]"
+                @click="toggleCostEfficiencySort('tokensPerDollar')"
+              >
+                Tokens / $
+                <i
+                  v-if="costEfficiencyFilters.sortBy === 'tokensPerDollar'"
+                  class="fas ml-1"
+                  :class="costEfficiencyFilters.order === 'asc' ? 'fa-arrow-up' : 'fa-arrow-down'"
+                />
+              </button>
+              <button
+                :class="[
+                  'rounded-md px-3 py-1 text-xs font-medium transition-colors sm:text-sm',
+                  costEfficiencyFilters.sortBy === 'costPerMillion'
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300'
+                ]"
+                @click="toggleCostEfficiencySort('costPerMillion')"
+              >
+                $ / 百万 Tokens
+                <i
+                  v-if="costEfficiencyFilters.sortBy === 'costPerMillion'"
+                  class="fas ml-1"
+                  :class="costEfficiencyFilters.order === 'asc' ? 'fa-arrow-up' : 'fa-arrow-down'"
+                />
+              </button>
+              <button
+                :class="[
+                  'rounded-md px-3 py-1 text-xs font-medium transition-colors sm:text-sm',
+                  costEfficiencyFilters.sortBy === 'successRate'
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300'
+                ]"
+                @click="toggleCostEfficiencySort('successRate')"
+              >
+                成功率
+                <i
+                  v-if="costEfficiencyFilters.sortBy === 'successRate'"
+                  class="fas ml-1"
+                  :class="costEfficiencyFilters.order === 'asc' ? 'fa-arrow-up' : 'fa-arrow-down'"
+                />
+              </button>
+            </div>
+          </div>
+          <div class="overflow-x-auto">
+            <table
+              class="min-w-full divide-y divide-gray-200 text-xs text-gray-600 dark:divide-gray-700 dark:text-gray-300 sm:text-sm"
+            >
+              <thead
+                class="bg-gray-50 text-xs uppercase tracking-wider text-gray-500 dark:bg-gray-800/60 dark:text-gray-400"
+              >
+                <tr>
+                  <th class="px-3 py-2 text-left">账户</th>
+                  <th class="px-3 py-2 text-right">费用</th>
+                  <th class="px-3 py-2 text-right">Tokens</th>
+                  <th class="px-3 py-2 text-right">Tokens / $</th>
+                  <th class="px-3 py-2 text-right">$ / 百万 Tokens</th>
+                  <th class="px-3 py-2 text-right">成功率</th>
+                  <th class="px-3 py-2 text-right">平均延迟</th>
+                  <th class="px-3 py-2 text-right">请求数</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
+                <tr v-if="!hasEfficiencyData">
+                  <td class="px-3 py-4 text-center text-gray-500 dark:text-gray-400" colspan="8">
+                    暂无数据
+                  </td>
+                </tr>
+                <tr
+                  v-for="item in efficiencyAccounts"
+                  :key="item.account.id"
+                  class="hover:bg-gray-50 dark:hover:bg-gray-800/70"
+                >
+                  <td class="px-3 py-3">
+                    <div class="flex items-center gap-2">
+                      <span
+                        class="inline-flex h-2 w-2 flex-shrink-0 rounded-full"
+                        :style="{ backgroundColor: getPlatformColor(item.account.platform) }"
+                      />
+                      <div>
+                        <p class="font-medium text-gray-900 dark:text-gray-100">
+                          {{ item.account.name || item.account.id }}
+                        </p>
+                        <p class="text-xs text-gray-500 dark:text-gray-400">
+                          {{
+                            platformLabels[item.account.platform] ||
+                            item.account.platform ||
+                            '未知平台'
+                          }}
+                        </p>
+                      </div>
+                    </div>
+                  </td>
+                  <td class="px-3 py-3 text-right">
+                    {{ formatCurrency(item.metrics.totalCost, 4) }}
+                  </td>
+                  <td class="px-3 py-3 text-right">
+                    {{ formatNumber(item.metrics.totalTokens || 0) }}
+                  </td>
+                  <td class="px-3 py-3 text-right">
+                    {{
+                      item.metrics.tokensPerDollar !== null &&
+                      item.metrics.tokensPerDollar !== undefined
+                        ? item.metrics.tokensPerDollar.toFixed(2)
+                        : '--'
+                    }}
+                  </td>
+                  <td class="px-3 py-3 text-right">
+                    {{
+                      item.metrics.costPerMillion !== null &&
+                      item.metrics.costPerMillion !== undefined
+                        ? item.metrics.costPerMillion.toFixed(2)
+                        : '--'
+                    }}
+                  </td>
+                  <td class="px-3 py-3 text-right">
+                    {{
+                      item.metrics.successRate !== null && item.metrics.successRate !== undefined
+                        ? (item.metrics.successRate * 100).toFixed(1) + '%'
+                        : '--'
+                    }}
+                  </td>
+                  <td class="px-3 py-3 text-right">
+                    {{ formatLatency(item.metrics.avgLatencyMs) }}
+                  </td>
+                  <td class="px-3 py-3 text-right">
+                    {{ (item.metrics.totalRequests || 0).toLocaleString() }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -641,6 +883,11 @@ const {
   dashboardModelStats,
   trendData,
   apiKeysTrendData,
+  efficiencyLoading,
+  efficiencySummary,
+  efficiencyAccounts,
+  efficiencyAccountsMeta,
+  costEfficiencyFilters,
   formattedUptime,
   dateFilter,
   trendGranularity,
@@ -651,11 +898,15 @@ const {
 const {
   loadDashboardData,
   loadApiKeysTrend,
+  loadCostEfficiencyData,
   setDateFilterPreset,
   onCustomDateRangeChange,
   setTrendGranularity,
   refreshChartsData,
-  disabledDate
+  disabledDate,
+  setCostEfficiencyRange,
+  setCostEfficiencyPlatform,
+  toggleCostEfficiencySort
 } = dashboardStore
 
 // Chart 实例
@@ -665,6 +916,8 @@ const apiKeysUsageTrendChart = ref(null)
 let modelUsageChartInstance = null
 let usageTrendChartInstance = null
 let apiKeysUsageTrendChartInstance = null
+const costEfficiencyChart = ref(null)
+let costEfficiencyChartInstance = null
 
 // 自动刷新相关
 const autoRefreshEnabled = ref(false)
@@ -687,6 +940,45 @@ const chartColors = computed(() => ({
   legend: isDarkMode.value ? '#e5e7eb' : '#374151'
 }))
 
+const platformColorMap = {
+  claude: '#4F46E5',
+  'claude-console': '#7C3AED',
+  gemini: '#0EA5E9',
+  bedrock: '#F97316',
+  openai: '#16A34A',
+  azure_openai: '#2563EB',
+  'openai-responses': '#14B8A6',
+  ccr: '#D97706'
+}
+
+const platformLabels = {
+  claude: 'Claude',
+  'claude-console': 'Console',
+  gemini: 'Gemini',
+  bedrock: 'Bedrock',
+  openai: 'OpenAI',
+  azure_openai: 'Azure OpenAI',
+  'openai-responses': 'Responses',
+  ccr: 'CCR'
+}
+
+const efficiencyRangeOptions = [
+  { value: 'today', label: '今日' },
+  { value: '7days', label: '7天' },
+  { value: '30d', label: '30天' },
+  { value: 'total', label: '全部' }
+]
+
+const efficiencyPlatformOptions = [
+  { value: 'all', label: '全部平台' },
+  { value: 'claude', label: 'Claude' },
+  { value: 'claude-console', label: 'Console' },
+  { value: 'gemini', label: 'Gemini' },
+  { value: 'bedrock', label: 'Bedrock' },
+  { value: 'openai', label: 'OpenAI' },
+  { value: 'azure_openai', label: 'Azure OpenAI' }
+]
+
 // 格式化数字
 function formatNumber(num) {
   if (num >= 1000000) {
@@ -696,6 +988,88 @@ function formatNumber(num) {
   }
   return num.toString()
 }
+
+function formatCurrency(value, decimals = 2) {
+  if (value === null || value === undefined) return '--'
+  const num = Number(value)
+  if (!Number.isFinite(num)) return '--'
+  return `$${num.toFixed(decimals)}`
+}
+
+function formatLatency(value) {
+  if (value === null || value === undefined) return '--'
+  const num = Number(value)
+  if (!Number.isFinite(num)) return '--'
+  return `${Math.round(num)}ms`
+}
+
+function getPlatformColor(platform) {
+  return platformColorMap[platform] || '#64748B'
+}
+
+const efficiencyTotals = computed(() => efficiencySummary.value?.totals || null)
+const hasEfficiencyData = computed(() => (efficiencyAccounts.value || []).length > 0)
+const efficiencyRangeValue = computed(() => costEfficiencyFilters.value.range || '30d')
+const efficiencyPlatformValue = computed(() => costEfficiencyFilters.value.platform || 'all')
+
+const efficiencyHighlightCards = computed(() => {
+  const totals = efficiencyTotals.value
+
+  if (!totals) {
+    return [
+      {
+        key: 'tokensPerDollar',
+        label: 'Tokens / $',
+        value: '--',
+        description: '平均每美元可用Token量'
+      },
+      {
+        key: 'costPerMillion',
+        label: '$ / 百万 Tokens',
+        value: '--',
+        description: '产出一百万Token的平均成本'
+      },
+      { key: 'successRate', label: '成功率', value: '--', description: '请求成功占比' },
+      { key: 'latency', label: '平均延迟', value: '--', description: '平均响应耗时 (P95)' }
+    ]
+  }
+
+  return [
+    {
+      key: 'tokensPerDollar',
+      label: 'Tokens / $',
+      value:
+        totals.tokensPerDollar !== null && totals.tokensPerDollar !== undefined
+          ? totals.tokensPerDollar.toFixed(2)
+          : '--',
+      description: '平均每美元可用Token量'
+    },
+    {
+      key: 'costPerMillion',
+      label: '$ / 百万 Tokens',
+      value:
+        totals.costPerMillion !== null && totals.costPerMillion !== undefined
+          ? totals.costPerMillion.toFixed(2)
+          : '--',
+      description: '产出一百万Token的平均成本'
+    },
+    {
+      key: 'successRate',
+      label: '成功率',
+      value:
+        totals.successRate !== null && totals.successRate !== undefined
+          ? `${(totals.successRate * 100).toFixed(1)}%`
+          : '--',
+      description: `请求总数 ${totals.totalRequests?.toLocaleString?.() || totals.totalRequests || 0}`
+    },
+    {
+      key: 'latency',
+      label: '平均延迟',
+      value: formatLatency(totals.avgLatencyMs),
+      description: `P95 ${formatLatency(totals.p95LatencyMs)}`
+    }
+  ]
+})
 
 // 计算百分比
 function calculatePercentage(value, stats) {
@@ -1194,6 +1568,137 @@ function createApiKeysUsageTrendChart() {
   })
 }
 
+function createCostEfficiencyChart() {
+  if (!costEfficiencyChart.value) return
+
+  if (costEfficiencyChartInstance) {
+    costEfficiencyChartInstance.destroy()
+  }
+
+  const accounts = efficiencyAccounts.value || []
+  if (accounts.length === 0) {
+    return
+  }
+
+  const points = accounts
+    .filter((item) => item && item.metrics)
+    .map((item) => {
+      const metrics = item.metrics
+      const account = item.account || {}
+      const totalRequests = Number(metrics.totalRequests || 0)
+      const radius = Math.max(4, Math.min(18, Math.sqrt(totalRequests + 1)))
+      return {
+        x:
+          metrics.costPerMillion !== null && metrics.costPerMillion !== undefined
+            ? Number(metrics.costPerMillion)
+            : 0,
+        y:
+          metrics.successRate !== null && metrics.successRate !== undefined
+            ? Number(metrics.successRate) * 100
+            : 0,
+        r: radius,
+        account,
+        metrics,
+        platform: account.platform || 'unknown'
+      }
+    })
+
+  if (points.length === 0) {
+    return
+  }
+
+  const dataset = {
+    label: '账户性价比',
+    data: points,
+    backgroundColor: points.map((point) => `${getPlatformColor(point.platform)}33`),
+    borderColor: points.map((point) => getPlatformColor(point.platform)),
+    borderWidth: 1,
+    hoverBackgroundColor: points.map((point) => getPlatformColor(point.platform)),
+    hoverBorderWidth: 1
+  }
+
+  costEfficiencyChartInstance = new Chart(costEfficiencyChart.value, {
+    type: 'bubble',
+    data: { datasets: [dataset] },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      parsing: false,
+      plugins: {
+        legend: {
+          display: false
+        },
+        tooltip: {
+          callbacks: {
+            label: function (context) {
+              const raw = context.raw || {}
+              const account = raw.account || {}
+              const metrics = raw.metrics || {}
+
+              const tokensPerDollar =
+                metrics.tokensPerDollar !== null && metrics.tokensPerDollar !== undefined
+                  ? metrics.tokensPerDollar.toFixed(2)
+                  : '--'
+              const costPerMillion =
+                metrics.costPerMillion !== null && metrics.costPerMillion !== undefined
+                  ? metrics.costPerMillion.toFixed(2)
+                  : '--'
+              const successRate =
+                metrics.successRate !== null && metrics.successRate !== undefined
+                  ? `${(metrics.successRate * 100).toFixed(1)}%`
+                  : '--'
+              const cost = formatCurrency(metrics.totalCost, 4)
+              const tokens = formatNumber(metrics.totalTokens || 0)
+              const requests = (metrics.totalRequests || 0).toLocaleString()
+
+              return [
+                `${account.name || account.id || '未知账户'}`,
+                `Tokens/$: ${tokensPerDollar}`,
+                `$ / 百万 Tokens: ${costPerMillion}`,
+                `成功率: ${successRate}`,
+                `费用: ${cost}`,
+                `Tokens: ${tokens}`,
+                `请求数: ${requests}`
+              ]
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          title: {
+            display: true,
+            text: '$ / 百万 Tokens',
+            color: chartColors.value.text
+          },
+          ticks: {
+            color: chartColors.value.text
+          },
+          grid: {
+            color: chartColors.value.grid
+          }
+        },
+        y: {
+          title: {
+            display: true,
+            text: '成功率 (%)',
+            color: chartColors.value.text
+          },
+          ticks: {
+            callback: (value) => `${value}%`,
+            color: chartColors.value.text
+          },
+          beginAtZero: true,
+          suggestedMax: 100,
+          grid: {
+            color: chartColors.value.grid
+          }
+        }
+      }
+    }
+  })
+}
+
 // 更新API Keys使用趋势图
 async function updateApiKeysUsageTrendChart() {
   await loadApiKeysTrend(apiKeysTrendMetric.value)
@@ -1214,13 +1719,17 @@ watch(apiKeysTrendData, () => {
   nextTick(() => createApiKeysUsageTrendChart())
 })
 
+watch(efficiencyAccounts, () => {
+  nextTick(() => createCostEfficiencyChart())
+})
+
 // 刷新所有数据
 async function refreshAllData() {
   if (isRefreshing.value) return
 
   isRefreshing.value = true
   try {
-    await Promise.all([loadDashboardData(), refreshChartsData()])
+    await Promise.all([loadDashboardData(), refreshChartsData(), loadCostEfficiencyData()])
   } finally {
     isRefreshing.value = false
   }
@@ -1297,6 +1806,7 @@ watch(isDarkMode, () => {
     createModelUsageChart()
     createUsageTrendChart()
     createApiKeysUsageTrendChart()
+    createCostEfficiencyChart()
   })
 })
 
@@ -1310,6 +1820,7 @@ onMounted(async () => {
   createModelUsageChart()
   createUsageTrendChart()
   createApiKeysUsageTrendChart()
+  createCostEfficiencyChart()
 })
 
 // 清理
@@ -1324,6 +1835,9 @@ onUnmounted(() => {
   }
   if (apiKeysUsageTrendChartInstance) {
     apiKeysUsageTrendChartInstance.destroy()
+  }
+  if (costEfficiencyChartInstance) {
+    costEfficiencyChartInstance.destroy()
   }
 })
 </script>
