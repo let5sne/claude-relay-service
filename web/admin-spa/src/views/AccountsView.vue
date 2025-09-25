@@ -2867,6 +2867,78 @@ const getSessionProgressBarClass = (status, account = null) => {
   }
 }
 
+// Codex CLI 用量可视化辅助 ----------------------------------------------
+const codexWindowLabels = {
+  primary: '主窗口',
+  secondary: '备用窗口'
+}
+
+const normalizePercent = (value) => {
+  const num = Number(value)
+  if (!Number.isFinite(num)) return null
+  if (num < 0) return 0
+  if (num > 9999) return 9999
+  return num
+}
+
+const getCodexUsageBarClass = (percent) => {
+  const normalized = normalizePercent(percent) ?? 0
+  if (normalized >= 100) return 'bg-red-500'
+  if (normalized >= 90) return 'bg-red-500'
+  if (normalized >= 75) return 'bg-yellow-500'
+  return 'bg-green-500'
+}
+
+const getCodexUsageWidth = (percent) => {
+  const normalized = normalizePercent(percent)
+  if (normalized === null) return '0%'
+  return `${Math.min(100, normalized)}%`
+}
+
+const formatCodexUsagePercent = (percent) => {
+  const normalized = normalizePercent(percent)
+  if (normalized === null) return '--'
+  if (normalized >= 100) return '100%+'
+  if (normalized >= 10) return `${normalized.toFixed(1)}%`
+  return `${normalized.toFixed(2)}%`
+}
+
+const getCodexWindowLabel = (type) => {
+  return codexWindowLabels[type] || '窗口'
+}
+
+const formatCodexRemaining = (windowInfo) => {
+  if (!windowInfo) return '--'
+
+  const secondsRaw = Number(windowInfo.remainingSeconds)
+  if (Number.isFinite(secondsRaw)) {
+    const seconds = Math.max(0, Math.floor(secondsRaw))
+    if (seconds <= 0) return '即将重置'
+    const hours = Math.floor(seconds / 3600)
+    const minutes = Math.floor((seconds % 3600) / 60)
+    if (hours > 0) {
+      return `${hours}小时${minutes > 0 ? `${minutes}分钟` : ''}`.trim()
+    }
+    if (minutes > 0) {
+      return `${minutes}分钟`
+    }
+    return `${Math.max(1, seconds)}秒`
+  }
+
+  if (windowInfo.resetAt) {
+    try {
+      const date = new Date(windowInfo.resetAt)
+      if (!Number.isNaN(date.getTime())) {
+        return date.toLocaleString('zh-CN', { hour12: false })
+      }
+    } catch (error) {
+      // ignore parsing error and fall through to default return
+    }
+  }
+
+  return '--'
+}
+
 // 格式化费用显示
 const formatCost = (cost) => {
   if (!cost || cost === 0) return '0.0000'
