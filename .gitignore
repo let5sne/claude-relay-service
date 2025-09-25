@@ -170,6 +170,8 @@ certs/
 
 # Database dumps
 *.sql
+!sql/migrations/
+!sql/migrations/*.sql
 *.db
 *.sqlite
 *.sqlite3
