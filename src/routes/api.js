@@ -149,11 +149,13 @@ async function handleMessagesRequest(req, res) {
               const { accountId: usageAccountId } = usageData
 
               // 构建 usage 对象以传递给 recordUsage
+              const duration = Date.now() - startTime
               const usageObject = {
                 input_tokens: inputTokens,
                 output_tokens: outputTokens,
                 cache_creation_input_tokens: cacheCreateTokens,
-                cache_read_input_tokens: cacheReadTokens
+                cache_read_input_tokens: cacheReadTokens,
+                response_latency_ms: duration
               }
 
               // 如果有详细的缓存创建数据，添加到 usage 对象中
@@ -252,11 +254,13 @@ async function handleMessagesRequest(req, res) {
               const usageAccountId = usageData.accountId
 
               // 构建 usage 对象以传递给 recordUsage
+              const duration = Date.now() - startTime
               const usageObject = {
                 input_tokens: inputTokens,
                 output_tokens: outputTokens,
                 cache_creation_input_tokens: cacheCreateTokens,
-                cache_read_input_tokens: cacheReadTokens
+                cache_read_input_tokens: cacheReadTokens,
+                response_latency_ms: duration
               }
 
               // 如果有详细的缓存创建数据，添加到 usage 对象中
@@ -341,8 +345,18 @@ async function handleMessagesRequest(req, res) {
             const inputTokens = result.usage.input_tokens || 0
             const outputTokens = result.usage.output_tokens || 0
 
+            const duration = Date.now() - startTime
             apiKeyService
-              .recordUsage(req.apiKey.id, inputTokens, outputTokens, 0, 0, result.model, accountId)
+              .recordUsage(
+                req.apiKey.id,
+                inputTokens,
+                outputTokens,
+                0,
+                0,
+                result.model,
+                accountId,
+                duration
+              )
               .catch((error) => {
                 logger.error('❌ Failed to record Bedrock stream usage:', error)
               })
@@ -427,11 +441,13 @@ async function handleMessagesRequest(req, res) {
               const usageAccountId = usageData.accountId
 
               // 构建 usage 对象以传递给 recordUsage
+              const duration = Date.now() - startTime
               const usageObject = {
                 input_tokens: inputTokens,
                 output_tokens: outputTokens,
                 cache_creation_input_tokens: cacheCreateTokens,
-                cache_read_input_tokens: cacheReadTokens
+                cache_read_input_tokens: cacheReadTokens,
+                response_latency_ms: duration
               }
 
               // 如果有详细的缓存创建数据，添加到 usage 对象中
@@ -638,6 +654,7 @@ async function handleMessagesRequest(req, res) {
 
           // 记录真实的token使用量（包含模型信息和所有4种token以及账户ID）
           const { accountId: responseAccountId } = response
+          const duration = Date.now() - startTime
           await apiKeyService.recordUsage(
             req.apiKey.id,
             inputTokens,
@@ -645,7 +662,8 @@ async function handleMessagesRequest(req, res) {
             cacheCreateTokens,
             cacheReadTokens,
             model,
-            responseAccountId
+            responseAccountId,
+            duration
           )
 
           // 更新时间窗口内的token计数和费用
@@ -691,8 +709,7 @@ async function handleMessagesRequest(req, res) {
       }
     }
 
-    const duration = Date.now() - startTime
-    logger.api(`✅ Request completed in ${duration}ms for key: ${req.apiKey.name}`)
+    logger.api(`✅ Request completed in ${Date.now() - startTime}ms for key: ${req.apiKey.name}`)
     return undefined
   } catch (error) {
     logger.error('❌ Claude relay error:', error.message, {

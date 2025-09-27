@@ -271,11 +271,15 @@ async function handleChatCompletion(req, res, apiKeyData) {
           if (usage && usage.input_tokens !== undefined && usage.output_tokens !== undefined) {
             const model = usage.model || claudeRequest.model
 
+            // 添加延迟信息到usage对象
+            const duration = Date.now() - startTime
+            const usageWithLatency = { ...usage, response_latency_ms: duration }
+
             // 使用新的 recordUsageWithDetails 方法来支持详细的缓存数据
             apiKeyService
               .recordUsageWithDetails(
                 apiKeyData.id,
-                usage, // 直接传递整个 usage 对象，包含可能的 cache_creation 详细数据
+                usageWithLatency, // 传递包含延迟信息的 usage 对象
                 model,
                 accountId
               )
@@ -341,11 +345,15 @@ async function handleChatCompletion(req, res, apiKeyData) {
       // 记录使用统计
       if (claudeData.usage) {
         const { usage } = claudeData
+        // 添加延迟信息到usage对象
+        const duration = Date.now() - startTime
+        const usageWithLatency = { ...usage, response_latency_ms: duration }
+
         // 使用新的 recordUsageWithDetails 方法来支持详细的缓存数据
         apiKeyService
           .recordUsageWithDetails(
             apiKeyData.id,
-            usage, // 直接传递整个 usage 对象，包含可能的 cache_creation 详细数据
+            usageWithLatency, // 传递包含延迟信息的 usage 对象
             claudeRequest.model,
             accountId
           )

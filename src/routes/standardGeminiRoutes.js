@@ -50,6 +50,7 @@ function ensureGeminiPermissionMiddleware(req, res, next) {
 
 // 专门处理标准 Gemini API 格式的 generateContent
 async function handleStandardGenerateContent(req, res) {
+  const startTime = Date.now()
   try {
     if (!ensureGeminiPermission(req, res)) {
       return undefined
@@ -199,6 +200,7 @@ async function handleStandardGenerateContent(req, res) {
     if (response?.response?.usageMetadata) {
       try {
         const usage = response.response.usageMetadata
+        const duration = Date.now() - startTime
         await apiKeyService.recordUsage(
           req.apiKey.id,
           usage.promptTokenCount || 0,
@@ -206,7 +208,8 @@ async function handleStandardGenerateContent(req, res) {
           0, // cacheCreateTokens
           0, // cacheReadTokens
           model,
-          account.id
+          account.id,
+          duration
         )
         logger.info(
           `📊 Recorded Gemini usage - Input: ${usage.promptTokenCount}, Output: ${usage.candidatesTokenCount}, Total: ${usage.totalTokenCount}`
@@ -260,6 +263,7 @@ async function handleStandardGenerateContent(req, res) {
 
 // 专门处理标准 Gemini API 格式的 streamGenerateContent
 async function handleStandardStreamGenerateContent(req, res) {
+  const startTime = Date.now()
   let abortController = null
 
   try {
@@ -518,6 +522,7 @@ async function handleStandardStreamGenerateContent(req, res) {
       // 记录使用统计
       if (totalUsage.totalTokenCount > 0) {
         try {
+          const duration = Date.now() - startTime
           await apiKeyService.recordUsage(
             req.apiKey.id,
             totalUsage.promptTokenCount || 0,
@@ -525,7 +530,8 @@ async function handleStandardStreamGenerateContent(req, res) {
             0, // cacheCreateTokens
             0, // cacheReadTokens
             model,
-            account.id
+            account.id,
+            duration
           )
           logger.info(
             `📊 Recorded Gemini stream usage - Input: ${totalUsage.promptTokenCount}, Output: ${totalUsage.candidatesTokenCount}, Total: ${totalUsage.totalTokenCount}`
