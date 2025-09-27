@@ -6,6 +6,8 @@ const CostCalculator = require('../utils/costCalculator')
 const logger = require('../utils/logger')
 const postgresUsageRepository = require('../repositories/postgresUsageRepository')
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 class ApiKeyService {
   constructor() {
     this.prefix = config.security.apiKeyPrefix
@@ -844,7 +846,8 @@ class ApiKeyService {
     cacheCreateTokens = 0,
     cacheReadTokens = 0,
     model = 'unknown',
-    accountId = null
+    accountId = null,
+    responseLatencyMs = 0
   ) {
     try {
       const totalTokens = inputTokens + outputTokens + cacheCreateTokens + cacheReadTokens
@@ -977,7 +980,7 @@ class ApiKeyService {
             isLongContext: isLongContextRequest
           },
           requestStatus: 'success',
-          responseLatencyMs: 0,
+          responseLatencyMs,
           httpStatus: null,
           errorCode: null,
           retries: 0,
@@ -1216,12 +1219,18 @@ class ApiKeyService {
         requestStatus = usageObject.error || usageObject.error_code ? 'error' : 'success'
       }
 
-      const responseLatencyMs =
+      let responseLatencyMs =
+        usageObject.response_latency_ms ||
+        usageObject.responseLatencyMs ||
         usageObject.latency_ms ||
         usageObject.latencyMs ||
         usageObject.response_time_ms ||
         usageObject.duration_ms ||
+        (usageObject.metrics &&
+          (usageObject.metrics.response_latency_ms || usageObject.metrics.latency_ms)) ||
         0
+
+      responseLatencyMs = Number(responseLatencyMs) || 0
 
       const httpStatus =
         usageObject.http_status || usageObject.status_code || usageObject.response_status || null
@@ -1548,17 +1557,42 @@ class ApiKeyService {
     return crypto.randomBytes(32).toString('hex')
   }
 
+  _normalizeAccountId(value) {
+    if (!value) {
+      return null
+    }
+
+    const stringValue = String(value).trim()
+    if (!stringValue || stringValue.toLowerCase().startsWith('group:')) {
+      return null
+    }
+
+    if (!UUID_REGEX.test(stringValue)) {
+      return null
+    }
+
+    return stringValue
+  }
+
   _resolvePrimaryAccountId(keyData = {}) {
-    return (
-      keyData.claudeAccountId ||
-      keyData.claudeConsoleAccountId ||
-      keyData.openaiAccountId ||
-      keyData.azureOpenaiAccountId ||
-      keyData.geminiAccountId ||
-      keyData.bedrockAccountId ||
-      keyData.accountId ||
-      null
-    )
+    const candidates = [
+      keyData.claudeAccountId,
+      keyData.claudeConsoleAccountId,
+      keyData.openaiAccountId,
+      keyData.azureOpenaiAccountId,
+      keyData.geminiAccountId,
+      keyData.bedrockAccountId,
+      keyData.accountId
+    ]
+
+    for (const candidate of candidates) {
+      const normalized = this._normalizeAccountId(candidate)
+      if (normalized) {
+        return normalized
+      }
+    }
+
+    return null
   }
 
   _buildApiKeyMetadata(keyData = {}) {
