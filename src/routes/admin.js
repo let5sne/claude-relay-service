@@ -8383,7 +8383,7 @@ router.post('/openai-responses-accounts/:id/reset-usage', authenticateAdmin, asy
 const costInferenceService = require('../services/costInferenceService')
 
 // 获取账户成本配置
-router.get('/api/admin/accounts/:accountId/cost-profile', async (req, res) => {
+router.get('/admin/accounts/:accountId/cost-profile', async (req, res) => {
   try {
     const { accountId } = req.params
     const profile = await costTrackingService.getAccountCostProfile(accountId)
@@ -8402,7 +8402,7 @@ router.get('/api/admin/accounts/:accountId/cost-profile', async (req, res) => {
 })
 
 // 更新账户成本配置
-router.put('/api/admin/accounts/:accountId/cost-profile', async (req, res) => {
+router.put('/admin/accounts/:accountId/cost-profile', async (req, res) => {
   try {
     const { accountId } = req.params
     const profile = req.body
@@ -8426,7 +8426,7 @@ router.put('/api/admin/accounts/:accountId/cost-profile', async (req, res) => {
 })
 
 // 推导计价参数
-router.post('/api/admin/accounts/:accountId/infer-pricing', async (req, res) => {
+router.post('/admin/accounts/:accountId/infer-pricing', async (req, res) => {
   try {
     const { accountId } = req.params
     const result = await costInferenceService.inferPricingFromBills(accountId)
@@ -8442,7 +8442,7 @@ router.post('/api/admin/accounts/:accountId/infer-pricing', async (req, res) => 
 })
 
 // 验证成本准确性
-router.post('/api/admin/accounts/:accountId/validate-costs', async (req, res) => {
+router.post('/admin/accounts/:accountId/validate-costs', async (req, res) => {
   try {
     const { accountId } = req.params
     const { billingPeriod } = req.body
@@ -8467,7 +8467,7 @@ router.post('/api/admin/accounts/:accountId/validate-costs', async (req, res) =>
 })
 
 // 录入账单数据
-router.post('/api/admin/accounts/:accountId/bills', async (req, res) => {
+router.post('/admin/accounts/:accountId/bills', async (req, res) => {
   try {
     const { accountId } = req.params
     const billData = req.body
@@ -8492,7 +8492,7 @@ router.post('/api/admin/accounts/:accountId/bills', async (req, res) => {
 })
 
 // 获取账单列表
-router.get('/api/admin/accounts/:accountId/bills', async (req, res) => {
+router.get('/admin/accounts/:accountId/bills', async (req, res) => {
   try {
     const { accountId } = req.params
     const { limit, offset } = req.query
@@ -8516,7 +8516,7 @@ router.get('/api/admin/accounts/:accountId/bills', async (req, res) => {
 })
 
 // 获取成本对比报告
-router.get('/api/admin/accounts/:accountId/cost-comparison', async (req, res) => {
+router.get('/admin/accounts/:accountId/cost-comparison', async (req, res) => {
   try {
     const { accountId } = req.params
     const { startDate, endDate } = req.query
