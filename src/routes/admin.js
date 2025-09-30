@@ -12,6 +12,7 @@ const accountGroupService = require('../services/accountGroupService')
 const redis = require('../models/redis')
 const accountUsageService = require('../services/accountUsageService')
 const costEfficiencyService = require('../services/costEfficiencyService')
+const costTrackingService = require('../services/costTrackingService')
 const { authenticateAdmin } = require('../middleware/auth')
 const logger = require('../utils/logger')
 const oauthHelper = require('../utils/oauthHelper')
@@ -23,6 +24,7 @@ const axios = require('axios')
 const crypto = require('crypto')
 const fs = require('fs')
 const path = require('path')
+const { v4: uuidv4 } = require('uuid')
 const config = require('../../config/config')
 const ProxyHelper = require('../utils/proxyHelper')
 
@@ -4158,6 +4160,189 @@ router.get('/accounts/:accountId/usage-breakdown', authenticateAdmin, async (req
     return res.status(500).json({
       success: false,
       error: 'Failed to get account usage breakdown',
+      message: error.message
+    })
+  }
+})
+
+// 📊 成本配置
+router.get('/accounts/:accountId/cost-profile', authenticateAdmin, async (req, res) => {
+  try {
+    const { accountId } = req.params
+
+    const profile = await costTrackingService.getAccountCostProfile(accountId)
+    if (!profile) {
+      return res.json({
+        success: true,
+        data: {
+          accountId,
+          billingType: 'standard',
+          costTrackingMode: 'standard',
+          currency: 'USD',
+          derivedRates: {},
+          confidenceLevel: null
+        },
+        timestamp: new Date().toISOString()
+      })
+    }
+
+    return res.json({ success: true, data: profile, timestamp: new Date().toISOString() })
+  } catch (error) {
+    logger.error('❌ Failed to fetch account cost profile:', error)
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to fetch account cost profile',
+      message: error.message
+    })
+  }
+})
+
+router.put('/accounts/:accountId/cost-profile', authenticateAdmin, async (req, res) => {
+  try {
+    const { accountId } = req.params
+    const payload = req.body || {}
+
+    const profile = await costTrackingService.upsertAccountCostProfile({
+      accountId,
+      billingType: payload.billingType || 'standard',
+      costTrackingMode: payload.costTrackingMode || 'standard',
+      currency: payload.currency || 'USD',
+      derivedRates: payload.derivedRates || {},
+      relativeEfficiency: payload.relativeEfficiency ?? null,
+      baselineAccountId: payload.baselineAccountId || null,
+      confidenceLevel: payload.confidenceLevel || null,
+      notes: payload.notes || null,
+      metadata: payload.metadata || {}
+    })
+
+    logger.success(`🧾 Updated cost profile for account ${accountId}`)
+    return res.json({ success: true, data: profile })
+  } catch (error) {
+    logger.error('❌ Failed to update account cost profile:', error)
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to update account cost profile',
+      message: error.message
+    })
+  }
+})
+
+router.get('/accounts/:accountId/bills', authenticateAdmin, async (req, res) => {
+  try {
+    const { accountId } = req.params
+    const { limit = 20, offset = 0 } = req.query
+
+    const bills = await costTrackingService.listAccountBills(accountId, {
+      limit: parseInt(limit, 10) || 20,
+      offset: parseInt(offset, 10) || 0
+    })
+
+    return res.json({ success: true, data: bills })
+  } catch (error) {
+    logger.error('❌ Failed to fetch account bills:', error)
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to fetch account bills',
+      message: error.message
+    })
+  }
+})
+
+router.post('/accounts/:accountId/bills', authenticateAdmin, async (req, res) => {
+  try {
+    const { accountId } = req.params
+    const payload = req.body || {}
+
+    if (!payload.billingPeriodStart || !payload.billingPeriodEnd || !payload.totalAmount) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields',
+        message: 'billingPeriodStart, billingPeriodEnd and totalAmount are required'
+      })
+    }
+
+    const bill = await costTrackingService.createAccountBill({
+      id: uuidv4(),
+      accountId,
+      billingPeriodStart: payload.billingPeriodStart,
+      billingPeriodEnd: payload.billingPeriodEnd,
+      totalAmount: payload.totalAmount,
+      currency: payload.currency || 'USD',
+      totalUnits: payload.totalUnits ?? null,
+      unitName: payload.unitName || null,
+      exchangeRate: payload.exchangeRate ?? null,
+      confidenceLevel: payload.confidenceLevel || null,
+      dataSource: payload.dataSource || 'manual',
+      documentUrl: payload.documentUrl || null,
+      notes: payload.notes || null,
+      createdBy: req.adminUser?.username || 'admin',
+      metadata: payload.metadata || {}
+    })
+
+    return res.status(201).json({ success: true, data: bill })
+  } catch (error) {
+    logger.error('❌ Failed to create account bill:', error)
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to create account bill',
+      message: error.message
+    })
+  }
+})
+
+router.get('/accounts/:accountId/balance-snapshots', authenticateAdmin, async (req, res) => {
+  try {
+    const { accountId } = req.params
+    const { limit = 50, offset = 0 } = req.query
+
+    const snapshots = await costTrackingService.listBalanceSnapshots(accountId, {
+      limit: parseInt(limit, 10) || 50,
+      offset: parseInt(offset, 10) || 0
+    })
+
+    return res.json({ success: true, data: snapshots })
+  } catch (error) {
+    logger.error('❌ Failed to fetch balance snapshots:', error)
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to fetch balance snapshots',
+      message: error.message
+    })
+  }
+})
+
+router.post('/accounts/:accountId/balance-snapshots', authenticateAdmin, async (req, res) => {
+  try {
+    const { accountId } = req.params
+    const payload = req.body || {}
+
+    if (!payload.capturedAt || payload.balanceUnits === undefined) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields',
+        message: 'capturedAt and balanceUnits are required'
+      })
+    }
+
+    const snapshot = await costTrackingService.createBalanceSnapshot({
+      id: uuidv4(),
+      accountId,
+      capturedAt: payload.capturedAt,
+      balanceUnits: payload.balanceUnits,
+      unitName: payload.unitName || null,
+      currency: payload.currency || null,
+      confidenceLevel: payload.confidenceLevel || null,
+      dataSource: payload.dataSource || 'manual',
+      notes: payload.notes || null,
+      metadata: payload.metadata || {}
+    })
+
+    return res.status(201).json({ success: true, data: snapshot })
+  } catch (error) {
+    logger.error('❌ Failed to create balance snapshot:', error)
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to create balance snapshot',
       message: error.message
     })
   }

@@ -941,6 +941,504 @@
                     >
                   </div>
 
+                  <div v-if="costStates[account.id]" class="mt-6 grid gap-4 lg:grid-cols-3">
+                    <div
+                      class="rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900/80"
+                    >
+                      <div class="flex items-center justify-between">
+                        <div>
+                          <span class="text-sm font-semibold text-gray-900 dark:text-gray-100"
+                            >成本配置</span
+                          >
+                          <span
+                            v-if="costStates[account.id].profile?.confidenceLevel"
+                            class="ml-2 text-xs text-gray-500 dark:text-gray-400"
+                          >
+                            置信度：{{ costStates[account.id].profile.confidenceLevel }}
+                          </span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                          <button
+                            v-if="!costStates[account.id].editing"
+                            class="rounded bg-indigo-100 px-2.5 py-1 text-xs font-medium text-indigo-600 hover:bg-indigo-200 dark:bg-indigo-900/40 dark:text-indigo-200 dark:hover:bg-indigo-900"
+                            @click="startCostEditing(account.id)"
+                          >
+                            编辑
+                          </button>
+                          <button
+                            v-else
+                            class="rounded bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+                            type="button"
+                            @click="cancelCostEditing(account.id)"
+                          >
+                            取消
+                          </button>
+                        </div>
+                      </div>
+                      <div
+                        v-if="costStates[account.id].loading"
+                        class="mt-3 text-xs text-gray-500 dark:text-gray-400"
+                      >
+                        正在加载成本配置...
+                      </div>
+                      <div v-else class="mt-3 space-y-3 text-xs text-gray-600 dark:text-gray-300">
+                        <div
+                          v-if="costStates[account.id].error"
+                          class="flex items-center justify-between rounded border border-yellow-200 bg-yellow-50 px-3 py-2 text-yellow-700 dark:border-yellow-700 dark:bg-yellow-900/20 dark:text-yellow-200"
+                        >
+                          <span>{{ costStates[account.id].error }}</span>
+                          <button
+                            class="rounded bg-yellow-500 px-2 py-1 text-[11px] text-white hover:bg-yellow-600"
+                            @click="ensureCostData(account.id)"
+                          >
+                            重试
+                          </button>
+                        </div>
+                        <form
+                          v-else-if="costStates[account.id].editing"
+                          class="space-y-3"
+                          @submit.prevent="saveCostProfile(account.id)"
+                        >
+                          <div class="grid grid-cols-2 gap-2">
+                            <label class="text-[11px] text-gray-500 dark:text-gray-400">
+                              计费类型
+                              <select
+                                v-model="costStates[account.id].form.billingType"
+                                class="mt-1 w-full rounded border border-gray-200 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-900"
+                              >
+                                <option
+                                  v-for="item in billingTypeOptions"
+                                  :key="item.value"
+                                  :value="item.value"
+                                >
+                                  {{ item.label }}
+                                </option>
+                              </select>
+                            </label>
+                            <label class="text-[11px] text-gray-500 dark:text-gray-400">
+                              成本模式
+                              <select
+                                v-model="costStates[account.id].form.costTrackingMode"
+                                class="mt-1 w-full rounded border border-gray-200 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-900"
+                              >
+                                <option
+                                  v-for="item in costModeOptions"
+                                  :key="item.value"
+                                  :value="item.value"
+                                >
+                                  {{ item.label }}
+                                </option>
+                              </select>
+                            </label>
+                          </div>
+                          <div class="grid grid-cols-2 gap-2">
+                            <label class="text-[11px] text-gray-500 dark:text-gray-400">
+                              币种
+                              <input
+                                v-model="costStates[account.id].form.currency"
+                                class="mt-1 w-full rounded border border-gray-200 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-900"
+                              />
+                            </label>
+                            <label class="text-[11px] text-gray-500 dark:text-gray-400">
+                              置信度
+                              <select
+                                v-model="costStates[account.id].form.confidenceLevel"
+                                class="mt-1 w-full rounded border border-gray-200 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-900"
+                              >
+                                <option
+                                  v-for="item in confidenceOptions"
+                                  :key="item.value"
+                                  :value="item.value"
+                                >
+                                  {{ item.label }}
+                                </option>
+                              </select>
+                            </label>
+                          </div>
+                          <div class="grid grid-cols-2 gap-2">
+                            <label class="text-[11px] text-gray-500 dark:text-gray-400">
+                              每百万 Token 成本
+                              <input
+                                v-model="costStates[account.id].form.derivedRates.costPerMillion"
+                                class="mt-1 w-full rounded border border-gray-200 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-900"
+                                placeholder="单位：{{ costStates[account.id].form.currency || 'USD' }}"
+                                step="0.0001"
+                                type="number"
+                              />
+                            </label>
+                            <label class="text-[11px] text-gray-500 dark:text-gray-400">
+                              每请求成本
+                              <input
+                                v-model="costStates[account.id].form.derivedRates.costPerRequest"
+                                class="mt-1 w-full rounded border border-gray-200 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-900"
+                                placeholder="单位：{{ costStates[account.id].form.currency || 'USD' }}"
+                                step="0.0001"
+                                type="number"
+                              />
+                            </label>
+                          </div>
+                          <div class="grid grid-cols-2 gap-2">
+                            <label class="text-[11px] text-gray-500 dark:text-gray-400">
+                              每积分成本
+                              <input
+                                v-model="costStates[account.id].form.derivedRates.costPerPoint"
+                                class="mt-1 w-full rounded border border-gray-200 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-900"
+                                placeholder="单位：{{ costStates[account.id].form.currency || 'USD' }}"
+                                step="0.0001"
+                                type="number"
+                              />
+                            </label>
+                            <label class="text-[11px] text-gray-500 dark:text-gray-400">
+                              相对效率倍数
+                              <input
+                                v-model="costStates[account.id].form.relativeEfficiency"
+                                class="mt-1 w-full rounded border border-gray-200 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-900"
+                                placeholder="例如 1.2"
+                                step="0.01"
+                                type="number"
+                              />
+                            </label>
+                          </div>
+                          <label class="block text-[11px] text-gray-500 dark:text-gray-400">
+                            备注
+                            <textarea
+                              v-model="costStates[account.id].form.notes"
+                              class="mt-1 w-full rounded border border-gray-200 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-900"
+                              placeholder="可记录成本来源、折扣等信息"
+                              rows="2"
+                            />
+                          </label>
+                          <div class="flex justify-end gap-2">
+                            <button
+                              class="rounded bg-gray-100 px-3 py-1 text-xs text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300"
+                              type="button"
+                              @click="cancelCostEditing(account.id)"
+                            >
+                              取消
+                            </button>
+                            <button
+                              class="rounded bg-indigo-600 px-3 py-1 text-xs text-white hover:bg-indigo-700 disabled:opacity-60"
+                              :disabled="costStates[account.id].saving"
+                              type="submit"
+                            >
+                              {{ costStates[account.id].saving ? '保存中...' : '保存' }}
+                            </button>
+                          </div>
+                        </form>
+                        <div v-else class="space-y-2">
+                          <div>
+                            计费类型：{{
+                              translateBillingType(costStates[account.id].profile?.billingType)
+                            }}
+                          </div>
+                          <div>
+                            成本模式：{{
+                              translateCostMode(costStates[account.id].profile?.costTrackingMode)
+                            }}
+                          </div>
+                          <div>币种：{{ costStates[account.id].profile?.currency || 'USD' }}</div>
+                          <div>
+                            每百万 Token 成本：
+                            {{
+                              formatCurrencyValue(
+                                costStates[account.id].profile?.derivedRates?.costPerMillion,
+                                costStates[account.id].profile?.currency
+                              )
+                            }}
+                          </div>
+                          <div>
+                            每请求成本：
+                            {{
+                              formatCurrencyValue(
+                                costStates[account.id].profile?.derivedRates?.costPerRequest,
+                                costStates[account.id].profile?.currency
+                              )
+                            }}
+                          </div>
+                          <div>
+                            每积分成本：
+                            {{
+                              formatCurrencyValue(
+                                costStates[account.id].profile?.derivedRates?.costPerPoint,
+                                costStates[account.id].profile?.currency
+                              )
+                            }}
+                          </div>
+                          <div>
+                            相对效率倍数：{{
+                              formatNullableNumber(
+                                costStates[account.id].profile?.relativeEfficiency,
+                                2
+                              )
+                            }}
+                          </div>
+                          <div>备注：{{ costStates[account.id].profile?.notes || '—' }}</div>
+                          <div class="text-[11px] text-gray-400">
+                            最近更新：{{ formatDate(costStates[account.id].profile?.updatedAt) }}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div
+                      class="rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900/80"
+                    >
+                      <div class="mb-2 flex items-center justify-between">
+                        <span class="text-sm font-semibold text-gray-900 dark:text-gray-100"
+                          >账单记录</span
+                        >
+                        <button
+                          class="rounded bg-blue-100 px-2.5 py-1 text-xs font-medium text-blue-600 hover:bg-blue-200 dark:bg-blue-900/40 dark:text-blue-200"
+                          @click="toggleBillForm(account.id)"
+                        >
+                          {{ costStates[account.id].billFormVisible ? '取消' : '录入账单' }}
+                        </button>
+                      </div>
+                      <div v-if="costStates[account.id].billsLoading" class="text-xs text-gray-500">
+                        正在加载账单...
+                      </div>
+                      <div
+                        v-else-if="costStates[account.id].billsError"
+                        class="rounded border border-yellow-200 bg-yellow-50 px-3 py-2 text-xs text-yellow-700 dark:border-yellow-700 dark:bg-yellow-900/20 dark:text-yellow-200"
+                      >
+                        {{ costStates[account.id].billsError }}
+                      </div>
+                      <div v-else class="space-y-3 text-xs text-gray-600 dark:text-gray-300">
+                        <form
+                          v-if="costStates[account.id].billFormVisible"
+                          class="space-y-2 rounded-md bg-gray-50 p-3 dark:bg-gray-900"
+                          @submit.prevent="submitBillForm(account.id)"
+                        >
+                          <div class="grid grid-cols-2 gap-2">
+                            <label class="text-[11px] text-gray-500"
+                              >开始日期
+                              <input
+                                v-model="costStates[account.id].billForm.billingPeriodStart"
+                                class="mt-1 w-full rounded border border-gray-200 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-900"
+                                type="date"
+                              />
+                            </label>
+                            <label class="text-[11px] text-gray-500"
+                              >结束日期
+                              <input
+                                v-model="costStates[account.id].billForm.billingPeriodEnd"
+                                class="mt-1 w-full rounded border border-gray-200 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-900"
+                                type="date"
+                              />
+                            </label>
+                          </div>
+                          <div class="grid grid-cols-2 gap-2">
+                            <label class="text-[11px] text-gray-500"
+                              >账单金额
+                              <input
+                                v-model="costStates[account.id].billForm.totalAmount"
+                                class="mt-1 w-full rounded border border-gray-200 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-900"
+                                step="0.01"
+                                type="number"
+                              />
+                            </label>
+                            <label class="text-[11px] text-gray-500"
+                              >币种
+                              <input
+                                v-model="costStates[account.id].billForm.currency"
+                                class="mt-1 w-full rounded border border-gray-200 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-900"
+                              />
+                            </label>
+                          </div>
+                          <div class="grid grid-cols-2 gap-2">
+                            <label class="text-[11px] text-gray-500"
+                              >消耗量
+                              <input
+                                v-model="costStates[account.id].billForm.totalUnits"
+                                class="mt-1 w-full rounded border border-gray-200 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-900"
+                                placeholder="积分或额度"
+                                step="0.0001"
+                                type="number"
+                              />
+                            </label>
+                            <label class="text-[11px] text-gray-500"
+                              >单位名称
+                              <input
+                                v-model="costStates[account.id].billForm.unitName"
+                                class="mt-1 w-full rounded border border-gray-200 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-900"
+                                placeholder="如 积分"
+                              />
+                            </label>
+                          </div>
+                          <label class="text-[11px] text-gray-500"
+                            >备注
+                            <textarea
+                              v-model="costStates[account.id].billForm.notes"
+                              class="mt-1 w-full rounded border border-gray-200 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-900"
+                              rows="2"
+                            />
+                          </label>
+                          <div class="flex justify-end gap-2">
+                            <button
+                              class="rounded bg-gray-100 px-3 py-1 text-xs text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300"
+                              type="button"
+                              @click="toggleBillForm(account.id)"
+                            >
+                              取消
+                            </button>
+                            <button
+                              class="rounded bg-blue-600 px-3 py-1 text-xs text-white hover:bg-blue-700 disabled:opacity-60"
+                              :disabled="costStates[account.id].billSubmitting"
+                              type="submit"
+                            >
+                              {{ costStates[account.id].billSubmitting ? '保存中...' : '保存' }}
+                            </button>
+                          </div>
+                        </form>
+                        <div v-if="!costStates[account.id].billFormVisible">
+                          <div
+                            v-if="
+                              !costStates[account.id].bills ||
+                              costStates[account.id].bills.length === 0
+                            "
+                            class="text-gray-400"
+                          >
+                            暂无账单记录
+                          </div>
+                          <ul v-else class="space-y-2">
+                            <li
+                              v-for="bill in costStates[account.id].bills"
+                              :key="bill.id"
+                              class="rounded border border-gray-100 px-3 py-2 dark:border-gray-700"
+                            >
+                              <div class="flex items-center justify-between">
+                                <span
+                                  >{{ formatDate(bill.billingPeriodStart) }} ~
+                                  {{ formatDate(bill.billingPeriodEnd) }}</span
+                                >
+                                <span class="font-medium text-gray-900 dark:text-gray-100">
+                                  {{ formatCurrencyValue(bill.totalAmount, bill.currency) }}
+                                </span>
+                              </div>
+                              <div class="text-[11px] text-gray-500 dark:text-gray-400">
+                                单位消耗：{{ formatNullableNumber(bill.totalUnits, 2) }}
+                                {{ bill.unitName || '' }}
+                              </div>
+                            </li>
+                          </ul>
+                        </div>
+                      </div>
+                    </div>
+                    <div
+                      class="rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900/80"
+                    >
+                      <div class="mb-2 flex items-center justify-between">
+                        <span class="text-sm font-semibold text-gray-900 dark:text-gray-100"
+                          >余额快照</span
+                        >
+                        <button
+                          class="rounded bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-600 hover:bg-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-200"
+                          @click="toggleSnapshotForm(account.id)"
+                        >
+                          {{ costStates[account.id].snapshotFormVisible ? '取消' : '新增快照' }}
+                        </button>
+                      </div>
+                      <div
+                        v-if="costStates[account.id].snapshotsLoading"
+                        class="text-xs text-gray-500"
+                      >
+                        正在加载余额...
+                      </div>
+                      <div
+                        v-else-if="costStates[account.id].snapshotsError"
+                        class="rounded border border-yellow-200 bg-yellow-50 px-3 py-2 text-xs text-yellow-700 dark:border-yellow-700 dark:bg-yellow-900/20 dark:text-yellow-200"
+                      >
+                        {{ costStates[account.id].snapshotsError }}
+                      </div>
+                      <div v-else class="space-y-3 text-xs text-gray-600 dark:text-gray-300">
+                        <form
+                          v-if="costStates[account.id].snapshotFormVisible"
+                          class="space-y-2 rounded-md bg-gray-50 p-3 dark:bg-gray-900"
+                          @submit.prevent="submitSnapshotForm(account.id)"
+                        >
+                          <label class="text-[11px] text-gray-500"
+                            >记录时间
+                            <input
+                              v-model="costStates[account.id].snapshotForm.capturedAt"
+                              class="mt-1 w-full rounded border border-gray-200 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-900"
+                              type="datetime-local"
+                            />
+                          </label>
+                          <div class="grid grid-cols-2 gap-2">
+                            <label class="text-[11px] text-gray-500"
+                              >余额数量
+                              <input
+                                v-model="costStates[account.id].snapshotForm.balanceUnits"
+                                class="mt-1 w-full rounded border border-gray-200 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-900"
+                                step="0.0001"
+                                type="number"
+                              />
+                            </label>
+                            <label class="text-[11px] text-gray-500"
+                              >单位
+                              <input
+                                v-model="costStates[account.id].snapshotForm.unitName"
+                                class="mt-1 w-full rounded border border-gray-200 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-900"
+                              />
+                            </label>
+                          </div>
+                          <label class="text-[11px] text-gray-500"
+                            >备注
+                            <textarea
+                              v-model="costStates[account.id].snapshotForm.notes"
+                              class="mt-1 w-full rounded border border-gray-200 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-900"
+                              rows="2"
+                            />
+                          </label>
+                          <div class="flex justify-end gap-2">
+                            <button
+                              class="rounded bg-gray-100 px-3 py-1 text-xs text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300"
+                              type="button"
+                              @click="toggleSnapshotForm(account.id)"
+                            >
+                              取消
+                            </button>
+                            <button
+                              class="rounded bg-emerald-600 px-3 py-1 text-xs text-white hover:bg-emerald-700 disabled:opacity-60"
+                              :disabled="costStates[account.id].snapshotSubmitting"
+                              type="submit"
+                            >
+                              {{ costStates[account.id].snapshotSubmitting ? '保存中...' : '保存' }}
+                            </button>
+                          </div>
+                        </form>
+                        <div v-else>
+                          <div
+                            v-if="
+                              !costStates[account.id].snapshots ||
+                              costStates[account.id].snapshots.length === 0
+                            "
+                            class="text-gray-400"
+                          >
+                            暂无快照记录
+                          </div>
+                          <ul v-else class="space-y-2">
+                            <li
+                              v-for="snapshot in costStates[account.id].snapshots"
+                              :key="snapshot.id"
+                              class="rounded border border-gray-100 px-3 py-2 dark:border-gray-700"
+                            >
+                              <div class="flex items-center justify-between">
+                                <span>{{ formatDate(snapshot.capturedAt) }}</span>
+                                <span class="font-medium text-gray-900 dark:text-gray-100">
+                                  {{ formatNullableNumber(snapshot.balanceUnits, 2) }}
+                                  {{ snapshot.unitName || '' }}
+                                </span>
+                              </div>
+                              <div class="text-[11px] text-gray-500 dark:text-gray-400">
+                                置信度：{{ snapshot.confidenceLevel || '未设置' }}
+                              </div>
+                            </li>
+                          </ul>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
                   <div
                     class="mt-6 rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900/70"
                   >
@@ -1590,7 +2088,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch, reactive } from 'vue'
 import { showToast } from '@/utils/toast'
 import { apiClient } from '@/config/api'
 import { useConfirm } from '@/composables/useConfirm'
@@ -1620,6 +2118,7 @@ const groupMembersLoaded = ref(false)
 const accountGroupMap = ref(new Map()) // Map<accountId, Array<groupInfo>>
 const expandedAccountIds = ref(new Set())
 const accountBreakdowns = ref({})
+const costStates = reactive({})
 
 // 下拉选项数据
 const sortOptions = ref([
@@ -1739,9 +2238,376 @@ const toggleAccountDetails = (account) => {
   if (!state.initialized && !state.loading) {
     loadAccountBreakdown(account, { range: state.range, reset: true })
   }
+
+  const costState = ensureCostState(account.id)
+  if (
+    expandedAccountIds.value.has(account.id) &&
+    costState &&
+    !costState.initialized &&
+    !costState.loading
+  ) {
+    ensureCostData(account.id)
+  }
 }
 
 const isAccountExpanded = (accountId) => expandedAccountIds.value.has(accountId)
+
+const parseNumericInput = (value) => {
+  if (value === '' || value === null || value === undefined) {
+    return null
+  }
+  const num = Number(value)
+  return Number.isFinite(num) ? num : null
+}
+
+const createDefaultDerivedRates = (derivedRates = {}) => ({
+  costPerMillion: derivedRates.costPerMillion ?? '',
+  costPerToken: derivedRates.costPerToken ?? '',
+  costPerRequest: derivedRates.costPerRequest ?? '',
+  costPerPoint: derivedRates.costPerPoint ?? '',
+  pointsPerRequest: derivedRates.pointsPerRequest ?? '',
+  pointsPerToken: derivedRates.pointsPerToken ?? ''
+})
+
+const createCostProfileForm = (profile = {}) => ({
+  billingType: profile.billingType || 'standard',
+  costTrackingMode: profile.costTrackingMode || 'standard',
+  currency: profile.currency || 'USD',
+  derivedRates: createDefaultDerivedRates(profile.derivedRates || {}),
+  relativeEfficiency:
+    profile.relativeEfficiency !== null && profile.relativeEfficiency !== undefined
+      ? String(profile.relativeEfficiency)
+      : '',
+  baselineAccountId: profile.baselineAccountId || '',
+  confidenceLevel: profile.confidenceLevel || '',
+  notes: profile.notes || ''
+})
+
+const defaultBillForm = () => ({
+  billingPeriodStart: '',
+  billingPeriodEnd: '',
+  totalAmount: '',
+  currency: 'USD',
+  totalUnits: '',
+  unitName: '',
+  exchangeRate: '',
+  confidenceLevel: 'confirmed',
+  dataSource: 'manual',
+  documentUrl: '',
+  notes: ''
+})
+
+const defaultSnapshotForm = () => ({
+  capturedAt: '',
+  balanceUnits: '',
+  unitName: '',
+  currency: '',
+  confidenceLevel: 'medium',
+  dataSource: 'manual',
+  notes: ''
+})
+
+const ensureCostState = (accountId) => {
+  if (!accountId) return null
+  if (!costStates[accountId]) {
+    costStates[accountId] = {
+      initialized: false,
+      loading: false,
+      error: null,
+      profile: null,
+      form: createCostProfileForm(),
+      editing: false,
+      saving: false,
+      bills: [],
+      billsLoading: false,
+      billsError: null,
+      billFormVisible: false,
+      billForm: defaultBillForm(),
+      billSubmitting: false,
+      snapshots: [],
+      snapshotsLoading: false,
+      snapshotsError: null,
+      snapshotFormVisible: false,
+      snapshotForm: defaultSnapshotForm(),
+      snapshotSubmitting: false
+    }
+  }
+  return costStates[accountId]
+}
+
+const costModeOptions = [
+  { value: 'standard', label: '标准定价' },
+  { value: 'manual_billing', label: '账单反推' },
+  { value: 'estimated', label: '相对估算' }
+]
+
+const billingTypeOptions = [
+  { value: 'standard', label: '标准计费' },
+  { value: 'points', label: '积分制' },
+  { value: 'quota', label: '额度制' }
+]
+
+const confidenceOptions = [
+  { value: '', label: '未设置' },
+  { value: 'high', label: '高' },
+  { value: 'medium', label: '中' },
+  { value: 'low', label: '低' }
+]
+
+const ensureCostData = async (accountId) => {
+  const state = ensureCostState(accountId)
+  if (!state || state.loading) {
+    return
+  }
+
+  state.loading = true
+  state.error = null
+  try {
+    await Promise.all([
+      loadCostProfile(accountId),
+      loadAccountBills(accountId),
+      loadBalanceSnapshots(accountId)
+    ])
+    state.initialized = true
+  } catch (error) {
+    state.error = error?.message || '加载成本信息失败'
+  } finally {
+    state.loading = false
+  }
+}
+
+const loadCostProfile = async (accountId) => {
+  const state = ensureCostState(accountId)
+  if (!state) return
+  try {
+    const response = await apiClient.get(`/admin/accounts/${accountId}/cost-profile`)
+    const profile = response?.data?.data || null
+    state.profile = profile
+    state.form = createCostProfileForm(profile || {})
+  } catch (error) {
+    state.error = error?.message || '加载成本配置失败'
+    throw error
+  }
+}
+
+const loadAccountBills = async (accountId) => {
+  const state = ensureCostState(accountId)
+  if (!state) return
+  state.billsLoading = true
+  state.billsError = null
+  try {
+    const response = await apiClient.get(`/admin/accounts/${accountId}/bills`, {
+      params: { limit: 20 }
+    })
+    state.bills = response?.data?.data || []
+  } catch (error) {
+    state.billsError = error?.message || '加载账单失败'
+  } finally {
+    state.billsLoading = false
+  }
+}
+
+const loadBalanceSnapshots = async (accountId) => {
+  const state = ensureCostState(accountId)
+  if (!state) return
+  state.snapshotsLoading = true
+  state.snapshotsError = null
+  try {
+    const response = await apiClient.get(`/admin/accounts/${accountId}/balance-snapshots`, {
+      params: { limit: 20 }
+    })
+    state.snapshots = response?.data?.data || []
+  } catch (error) {
+    state.snapshotsError = error?.message || '加载余额快照失败'
+  } finally {
+    state.snapshotsLoading = false
+  }
+}
+
+const startCostEditing = (accountId) => {
+  const state = ensureCostState(accountId)
+  if (!state) return
+  state.form = createCostProfileForm(state.profile || {})
+  state.editing = true
+}
+
+const cancelCostEditing = (accountId) => {
+  const state = ensureCostState(accountId)
+  if (!state) return
+  state.form = createCostProfileForm(state.profile || {})
+  state.editing = false
+}
+
+const saveCostProfile = async (accountId) => {
+  const state = ensureCostState(accountId)
+  if (!state) return
+  state.saving = true
+  try {
+    const derivedRates = {}
+    Object.entries(state.form.derivedRates || {}).forEach(([key, value]) => {
+      const parsed = parseNumericInput(value)
+      if (parsed !== null) {
+        derivedRates[key] = parsed
+      }
+    })
+
+    const payload = {
+      billingType: state.form.billingType || 'standard',
+      costTrackingMode: state.form.costTrackingMode || 'standard',
+      currency: state.form.currency || 'USD',
+      derivedRates,
+      relativeEfficiency: parseNumericInput(state.form.relativeEfficiency),
+      baselineAccountId: state.form.baselineAccountId || null,
+      confidenceLevel: state.form.confidenceLevel || null,
+      notes: state.form.notes || null,
+      metadata: state.profile?.metadata || {}
+    }
+
+    const response = await apiClient.put(`/admin/accounts/${accountId}/cost-profile`, payload)
+    state.profile = response?.data?.data || payload
+    state.form = createCostProfileForm(state.profile || {})
+    state.editing = false
+    showToast('成本配置已保存', 'success')
+  } catch (error) {
+    showToast(`保存成本配置失败：${error?.message || '未知错误'}`, 'error')
+  } finally {
+    state.saving = false
+  }
+}
+
+const toggleBillForm = (accountId) => {
+  const state = ensureCostState(accountId)
+  if (!state) return
+  state.billFormVisible = !state.billFormVisible
+  if (!state.billFormVisible) {
+    state.billForm = defaultBillForm()
+  }
+}
+
+const submitBillForm = async (accountId) => {
+  const state = ensureCostState(accountId)
+  if (!state || state.billSubmitting) return
+  state.billSubmitting = true
+  try {
+    const payload = {
+      billingPeriodStart: state.billForm.billingPeriodStart,
+      billingPeriodEnd: state.billForm.billingPeriodEnd,
+      totalAmount: Number(state.billForm.totalAmount),
+      currency: state.billForm.currency || 'USD',
+      totalUnits: parseNumericInput(state.billForm.totalUnits),
+      unitName: state.billForm.unitName || null,
+      exchangeRate: parseNumericInput(state.billForm.exchangeRate),
+      confidenceLevel: state.billForm.confidenceLevel || null,
+      dataSource: state.billForm.dataSource || 'manual',
+      documentUrl: state.billForm.documentUrl || null,
+      notes: state.billForm.notes || null
+    }
+
+    if (
+      !payload.billingPeriodStart ||
+      !payload.billingPeriodEnd ||
+      !Number.isFinite(payload.totalAmount)
+    ) {
+      showToast('请填写完整账单信息', 'warning')
+      state.billSubmitting = false
+      return
+    }
+
+    await apiClient.post(`/admin/accounts/${accountId}/bills`, payload)
+    showToast('账单已记录', 'success')
+    state.billFormVisible = false
+    state.billForm = defaultBillForm()
+    await loadAccountBills(accountId)
+    await loadCostProfile(accountId)
+  } catch (error) {
+    showToast(`记录账单失败：${error?.message || '未知错误'}`, 'error')
+  } finally {
+    state.billSubmitting = false
+  }
+}
+
+const toggleSnapshotForm = (accountId) => {
+  const state = ensureCostState(accountId)
+  if (!state) return
+  state.snapshotFormVisible = !state.snapshotFormVisible
+  if (!state.snapshotFormVisible) {
+    state.snapshotForm = defaultSnapshotForm()
+  }
+}
+
+const submitSnapshotForm = async (accountId) => {
+  const state = ensureCostState(accountId)
+  if (!state || state.snapshotSubmitting) return
+  state.snapshotSubmitting = true
+  try {
+    const payload = {
+      capturedAt: state.snapshotForm.capturedAt,
+      balanceUnits: Number(state.snapshotForm.balanceUnits),
+      unitName: state.snapshotForm.unitName || null,
+      currency: state.snapshotForm.currency || null,
+      confidenceLevel: state.snapshotForm.confidenceLevel || null,
+      dataSource: state.snapshotForm.dataSource || 'manual',
+      notes: state.snapshotForm.notes || null
+    }
+
+    if (!payload.capturedAt || !Number.isFinite(payload.balanceUnits)) {
+      showToast('请填写完整的余额快照信息', 'warning')
+      state.snapshotSubmitting = false
+      return
+    }
+
+    await apiClient.post(`/admin/accounts/${accountId}/balance-snapshots`, payload)
+    showToast('余额快照已记录', 'success')
+    state.snapshotFormVisible = false
+    state.snapshotForm = defaultSnapshotForm()
+    await loadBalanceSnapshots(accountId)
+  } catch (error) {
+    showToast(`记录余额快照失败：${error?.message || '未知错误'}`, 'error')
+  } finally {
+    state.snapshotSubmitting = false
+  }
+}
+
+const translateCostMode = (mode) => {
+  const match = costModeOptions.find((item) => item.value === mode)
+  return match ? match.label : '标准定价'
+}
+
+const translateBillingType = (type) => {
+  const match = billingTypeOptions.find((item) => item.value === type)
+  return match ? match.label : '标准计费'
+}
+
+const formatCurrencyValue = (amount, currency = 'USD') => {
+  if (amount === null || amount === undefined || amount === '') {
+    return '--'
+  }
+  const num = Number(amount)
+  if (!Number.isFinite(num)) {
+    return '--'
+  }
+  return `${currency} ${num.toFixed(2)}`
+}
+
+const formatDate = (value) => {
+  if (!value) return '--'
+  try {
+    return new Date(value).toISOString().slice(0, 10)
+  } catch (error) {
+    return value
+  }
+}
+
+const formatNullableNumber = (value, digits = 4) => {
+  if (value === null || value === undefined || value === '') {
+    return '--'
+  }
+  const num = Number(value)
+  if (!Number.isFinite(num)) {
+    return '--'
+  }
+  return num.toFixed(digits)
+}
 
 const endpointConfigs = [
   { key: 'claude', url: '/admin/claude-accounts' },

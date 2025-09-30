@@ -5,6 +5,7 @@ const redis = require('../models/redis')
 const CostCalculator = require('../utils/costCalculator')
 const logger = require('../utils/logger')
 const postgresUsageRepository = require('../repositories/postgresUsageRepository')
+const costTrackingService = require('./costTrackingService')
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -961,6 +962,28 @@ class ApiKeyService {
         costBreakdown: costInfo && costInfo.costs ? costInfo.costs : undefined
       })
 
+      let costProfile = null
+      if (accountId) {
+        costProfile = await costTrackingService.getAccountCostProfile(accountId)
+      }
+
+      const actualCostResult = CostCalculator.calculateActualCost({
+        usage: {
+          input_tokens: inputTokens,
+          output_tokens: outputTokens,
+          cache_creation_input_tokens: cacheCreateTokens,
+          cache_read_input_tokens: cacheReadTokens,
+          requests: 1
+        },
+        model,
+        fallback: costInfo,
+        profile: costProfile
+      })
+
+      const normalizedActualCost = Number(
+        ((actualCostResult.actualCost ?? usageCost) || 0).toFixed(6)
+      )
+
       try {
         await postgresUsageRepository.recordUsage({
           occurredAt: new Date(),
@@ -974,6 +997,10 @@ class ApiKeyService {
           cacheReadTokens,
           totalTokens,
           totalCost: Number(usageCost.toFixed(6)),
+          actualCost: normalizedActualCost,
+          costSource: actualCostResult.costSource,
+          billingPeriod: actualCostResult.billingPeriod,
+          confidenceLevel: actualCostResult.confidenceLevel,
           costBreakdown: costInfo?.costs || {},
           metadata: {
             source: 'redis-sync',
@@ -1258,6 +1285,43 @@ class ApiKeyService {
         keyMetadata.region ||
         null
 
+      let costProfile = null
+      if (accountId) {
+        costProfile = await costTrackingService.getAccountCostProfile(accountId)
+      }
+
+      const actualCostResult = CostCalculator.calculateActualCost({
+        usage: {
+          input_tokens: inputTokens,
+          output_tokens: outputTokens,
+          cache_creation_input_tokens: cacheCreateTokens,
+          cache_read_input_tokens: cacheReadTokens,
+          requests: 1
+        },
+        model,
+        fallback:
+          costInfo && costInfo.totalCost !== undefined
+            ? {
+                costs: {
+                  total: costInfo.totalCost,
+                  input: costInfo.inputCost,
+                  output: costInfo.outputCost,
+                  cacheWrite: costInfo.cacheCreateCost,
+                  cacheRead: costInfo.cacheReadCost
+                }
+              }
+            : {
+                costs: {
+                  total: usageRecord.cost || 0
+                }
+              },
+        profile: costProfile
+      })
+
+      const normalizedActualCost = Number(
+        ((actualCostResult.actualCost ?? usageRecord.cost) || 0).toFixed(6)
+      )
+
       try {
         await postgresUsageRepository.recordUsage({
           occurredAt: usageRecord.timestamp,
@@ -1273,6 +1337,10 @@ class ApiKeyService {
           ephemeral1hTokens: usageRecord.ephemeral1hTokens,
           totalTokens,
           totalCost: usageRecord.cost,
+          actualCost: normalizedActualCost,
+          costSource: actualCostResult.costSource,
+          billingPeriod: actualCostResult.billingPeriod,
+          confidenceLevel: actualCostResult.confidenceLevel,
           costBreakdown: usageRecord.costBreakdown,
           metadata: {
             accountType: accountType || 'unknown',

@@ -315,6 +315,98 @@ class CostCalculator {
       }
     }
   }
+
+  /**
+   * 根据成本配置计算“实际成本”及其来源
+   * @param {Object} params
+   * @param {Object} params.usage - 与 calculateCost 相同的 usage 对象
+   * @param {string} params.model - 模型名称
+   * @param {Object} params.fallback - 通过标准定价得到的费用信息
+   * @param {Object|null} params.profile - 账户成本配置
+   * @returns {{ actualCost: number, costSource: string, confidenceLevel: string|null }}
+   */
+  static calculateActualCost({ usage, model: _model, fallback, profile }) {
+    const defaultResult = {
+      actualCost: fallback?.costs?.total ?? 0,
+      costSource: 'calculated',
+      confidenceLevel: fallback?.confidenceLevel || null,
+      billingPeriod: this.getCurrentBillingPeriod()
+    }
+
+    if (!profile) {
+      return defaultResult
+    }
+
+    const trackingMode = profile.costTrackingMode || 'standard'
+    const confidenceLevel = profile.confidenceLevel || defaultResult.confidenceLevel || null
+    const totalTokens =
+      (usage.input_tokens || 0) +
+      (usage.output_tokens || 0) +
+      (usage.cache_creation_input_tokens || 0) +
+      (usage.cache_read_input_tokens || 0)
+    const requests = usage.requests || 1
+
+    if (trackingMode === 'manual_billing') {
+      const rates = profile.derivedRates || {}
+      let actualCost = 0
+
+      if (rates.costPerToken && totalTokens > 0) {
+        actualCost += (totalTokens / 1000000) * rates.costPerToken
+      }
+
+      if ((!rates.costPerToken || totalTokens === 0) && rates.costPerMillion && totalTokens > 0) {
+        actualCost += (totalTokens / 1000000) * rates.costPerMillion
+      }
+
+      if (actualCost === 0 && rates.costPerRequest) {
+        actualCost = requests * rates.costPerRequest
+      }
+
+      if (actualCost === 0 && rates.costPerPoint && rates.pointsPerRequest) {
+        actualCost = requests * rates.pointsPerRequest * rates.costPerPoint
+      }
+
+      if (actualCost === 0 && rates.costPerPoint && rates.pointsPerToken && totalTokens > 0) {
+        actualCost = totalTokens * rates.pointsPerToken * rates.costPerPoint
+      }
+
+      if (actualCost === 0 && fallback?.costs?.total) {
+        actualCost = fallback.costs.total
+      }
+
+      return {
+        actualCost,
+        costSource: 'manual',
+        confidenceLevel,
+        billingPeriod: this.getCurrentBillingPeriod()
+      }
+    }
+
+    if (trackingMode === 'estimated') {
+      const multiplier = profile.relativeEfficiency || 1
+      const baseCost = fallback?.costs?.total || 0
+      return {
+        actualCost: baseCost * multiplier,
+        costSource: 'estimated',
+        confidenceLevel,
+        billingPeriod: this.getCurrentBillingPeriod()
+      }
+    }
+
+    return {
+      actualCost: fallback?.costs?.total || 0,
+      costSource: 'calculated',
+      confidenceLevel,
+      billingPeriod: this.getCurrentBillingPeriod()
+    }
+  }
+
+  static getCurrentBillingPeriod() {
+    const now = new Date()
+    const year = now.getUTCFullYear()
+    const month = String(now.getUTCMonth() + 1).padStart(2, '0')
+    return `${year}-${month}`
+  }
 }
 
 module.exports = CostCalculator
