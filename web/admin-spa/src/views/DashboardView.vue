@@ -753,44 +753,11 @@ const chartColors = computed(() => ({
   legend: isDarkMode.value ? '#e5e7eb' : '#374151'
 }))
 
-const platformColorMap = {
-  claude: '#4F46E5',
-  'claude-console': '#7C3AED',
-  gemini: '#0EA5E9',
-  bedrock: '#F97316',
-  openai: '#16A34A',
-  azure_openai: '#2563EB',
-  'openai-responses': '#14B8A6',
-  ccr: '#D97706'
-}
-
-const platformLabels = {
-  claude: 'Claude',
-  'claude-console': 'Console',
-  gemini: 'Gemini',
-  bedrock: 'Bedrock',
-  openai: 'OpenAI',
-  azure_openai: 'Azure OpenAI',
-  'openai-responses': 'Responses',
-  ccr: 'CCR'
-}
-
-const efficiencyRangeOptions = [
-  { value: 'today', label: '今日' },
-  { value: '7days', label: '7天' },
-  { value: '30d', label: '30天' },
-  { value: 'total', label: '全部' }
-]
-
-const efficiencyPlatformOptions = [
-  { value: 'all', label: '全部平台' },
-  { value: 'claude', label: 'Claude' },
-  { value: 'claude-console', label: 'Console' },
-  { value: 'gemini', label: 'Gemini' },
-  { value: 'bedrock', label: 'Bedrock' },
-  { value: 'openai', label: 'OpenAI' },
-  { value: 'azure_openai', label: 'Azure OpenAI' }
-]
+// 以下变量暂时未使用，已注释
+// const platformColorMap = { ... }
+// const platformLabels = { ... }
+// const efficiencyRangeOptions = [ ... ]
+// const efficiencyPlatformOptions = [ ... ]
 
 // 格式化数字
 function formatNumber(num) {
@@ -1312,7 +1279,8 @@ function createApiKeysUsageTrendChart() {
   })
 }
 
-function createCostEfficiencyChart() {
+// 暂时未使用的函数，已注释
+/* function createCostEfficiencyChart() {
   if (!costEfficiencyChart.value) return
 
   if (costEfficiencyChartInstance) {
@@ -1441,7 +1409,7 @@ function createCostEfficiencyChart() {
       }
     }
   })
-}
+} */
 
 // 更新API Keys使用趋势图
 async function updateApiKeysUsageTrendChart() {

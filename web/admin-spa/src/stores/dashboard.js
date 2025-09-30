@@ -1010,6 +1010,12 @@ export const useDashboardStore = defineStore('dashboard', () => {
     setTrendGranularity,
     refreshChartsData,
     setAccountUsageGroup,
-    disabledDate
+    disabledDate,
+
+    // 性价比相关方法
+    setCostEfficiencyRange,
+    setCostEfficiencyPlatform,
+    toggleCostEfficiencySort,
+    setCostEfficiencyInterval
   }
 })
