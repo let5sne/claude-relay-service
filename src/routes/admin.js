@@ -8056,4 +8056,172 @@ router.post('/openai-responses-accounts/:id/reset-usage', authenticateAdmin, asy
   }
 })
 
+// ============================================================================
+// 成本追踪相关API
+// ============================================================================
+
+const costInferenceService = require('../services/costInferenceService')
+
+// 获取账户成本配置
+router.get('/api/admin/accounts/:accountId/cost-profile', async (req, res) => {
+  try {
+    const { accountId } = req.params
+    const profile = await costTrackingService.getAccountCostProfile(accountId)
+
+    res.json({
+      success: true,
+      profile
+    })
+  } catch (error) {
+    logger.error('Failed to get cost profile:', error)
+    res.status(500).json({
+      success: false,
+      error: error.message
+    })
+  }
+})
+
+// 更新账户成本配置
+router.put('/api/admin/accounts/:accountId/cost-profile', async (req, res) => {
+  try {
+    const { accountId } = req.params
+    const profile = req.body
+
+    const result = await costTrackingService.upsertAccountCostProfile({
+      accountId,
+      ...profile
+    })
+
+    res.json({
+      success: true,
+      profile: result
+    })
+  } catch (error) {
+    logger.error('Failed to update cost profile:', error)
+    res.status(500).json({
+      success: false,
+      error: error.message
+    })
+  }
+})
+
+// 推导计价参数
+router.post('/api/admin/accounts/:accountId/infer-pricing', async (req, res) => {
+  try {
+    const { accountId } = req.params
+    const result = await costInferenceService.inferPricingFromBills(accountId)
+
+    res.json(result)
+  } catch (error) {
+    logger.error('Failed to infer pricing:', error)
+    res.status(500).json({
+      success: false,
+      error: error.message
+    })
+  }
+})
+
+// 验证成本准确性
+router.post('/api/admin/accounts/:accountId/validate-costs', async (req, res) => {
+  try {
+    const { accountId } = req.params
+    const { billingPeriod } = req.body
+
+    if (!billingPeriod) {
+      return res.status(400).json({
+        success: false,
+        error: 'billingPeriod is required'
+      })
+    }
+
+    const result = await costInferenceService.validateCostAccuracy(accountId, billingPeriod)
+
+    res.json(result)
+  } catch (error) {
+    logger.error('Failed to validate costs:', error)
+    res.status(500).json({
+      success: false,
+      error: error.message
+    })
+  }
+})
+
+// 录入账单数据
+router.post('/api/admin/accounts/:accountId/bills', async (req, res) => {
+  try {
+    const { accountId } = req.params
+    const billData = req.body
+
+    const bill = await costTrackingService.createAccountBill({
+      id: uuidv4(),
+      accountId,
+      ...billData
+    })
+
+    res.json({
+      success: true,
+      bill
+    })
+  } catch (error) {
+    logger.error('Failed to create bill:', error)
+    res.status(500).json({
+      success: false,
+      error: error.message
+    })
+  }
+})
+
+// 获取账单列表
+router.get('/api/admin/accounts/:accountId/bills', async (req, res) => {
+  try {
+    const { accountId } = req.params
+    const { limit, offset } = req.query
+
+    const bills = await costTrackingService.listAccountBills(accountId, {
+      limit: limit ? parseInt(limit) : 20,
+      offset: offset ? parseInt(offset) : 0
+    })
+
+    res.json({
+      success: true,
+      bills
+    })
+  } catch (error) {
+    logger.error('Failed to list bills:', error)
+    res.status(500).json({
+      success: false,
+      error: error.message
+    })
+  }
+})
+
+// 获取成本对比报告
+router.get('/api/admin/accounts/:accountId/cost-comparison', async (req, res) => {
+  try {
+    const { accountId } = req.params
+    const { startDate, endDate } = req.query
+
+    if (!startDate || !endDate) {
+      return res.status(400).json({
+        success: false,
+        error: 'startDate and endDate are required'
+      })
+    }
+
+    const report = await costInferenceService.generateCostComparisonReport(
+      accountId,
+      startDate,
+      endDate
+    )
+
+    res.json(report)
+  } catch (error) {
+    logger.error('Failed to generate cost comparison:', error)
+    res.status(500).json({
+      success: false,
+      error: error.message
+    })
+  }
+})
+
 module.exports = router

@@ -317,20 +317,128 @@ class CostCalculator {
   }
 
   /**
-   * 根据成本配置计算“实际成本”及其来源
+   * 计算阶梯定价成本
+   * @param {Object} params
+   * @param {number} params.totalTokens - 总token数
+   * @param {Array} params.tieredPricing - 阶梯定价配置
+   * @returns {number} 总成本
+   */
+  static calculateTieredCost({ totalTokens, tieredPricing }) {
+    let remainingTokens = totalTokens
+    let totalCost = 0
+
+    for (const tier of tieredPricing) {
+      if (remainingTokens <= 0) {
+        break
+      }
+
+      const tierMin = tier.minTokens || 0
+      const tierMax = tier.maxTokens || Infinity
+      const tierSize = tierMax - tierMin
+
+      const tokensInTier = Math.min(remainingTokens, tierSize)
+      const tierCost = (tokensInTier / 1000000) * tier.costPerMillion
+
+      totalCost += tierCost
+      remainingTokens -= tokensInTier
+    }
+
+    return totalCost
+  }
+
+  /**
+   * 计算积分制成本
+   * @param {Object} params
+   * @param {Object} params.usage - 使用量数据
+   * @param {Object} params.pointConversion - 积分换算配置
+   * @returns {number} 总成本
+   */
+  static calculatePointBasedCost({ usage, pointConversion }) {
+    const { pointsPerRequest, pointsPerToken, costPerPoint } = pointConversion
+
+    const totalTokens =
+      (usage.input_tokens || 0) +
+      (usage.output_tokens || 0) +
+      (usage.cache_creation_input_tokens || 0) +
+      (usage.cache_read_input_tokens || 0)
+
+    const requests = usage.requests || 1
+
+    let totalPoints = 0
+
+    if (pointsPerRequest) {
+      totalPoints += requests * pointsPerRequest
+    }
+
+    if (pointsPerToken) {
+      totalPoints += totalTokens * pointsPerToken
+    }
+
+    return totalPoints * costPerPoint
+  }
+
+  /**
+   * 计算混合计费成本
+   * @param {Object} params
+   * @param {Object} params.usage - 使用量数据
+   * @param {Object} params.pricingFormula - 计价公式配置
+   * @returns {number} 总成本
+   */
+  static calculateHybridCost({ usage, pricingFormula }) {
+    const { components } = pricingFormula
+    let totalCost = 0
+
+    for (const component of components) {
+      let componentCost = 0
+
+      switch (component.type) {
+        case 'per_request': {
+          componentCost = (usage.requests || 1) * component.rate
+          break
+        }
+        case 'per_token': {
+          const totalTokens =
+            (usage.input_tokens || 0) +
+            (usage.output_tokens || 0) +
+            (usage.cache_creation_input_tokens || 0) +
+            (usage.cache_read_input_tokens || 0)
+          componentCost = totalTokens * component.rate
+          break
+        }
+        case 'per_million_tokens': {
+          const totalTokensMillion =
+            ((usage.input_tokens || 0) +
+              (usage.output_tokens || 0) +
+              (usage.cache_creation_input_tokens || 0) +
+              (usage.cache_read_input_tokens || 0)) /
+            1000000
+          componentCost = totalTokensMillion * component.rate
+          break
+        }
+      }
+
+      totalCost += componentCost * (component.weight || 1)
+    }
+
+    return totalCost
+  }
+
+  /**
+   * 根据成本配置计算"实际成本"及其来源
    * @param {Object} params
    * @param {Object} params.usage - 与 calculateCost 相同的 usage 对象
    * @param {string} params.model - 模型名称
    * @param {Object} params.fallback - 通过标准定价得到的费用信息
    * @param {Object|null} params.profile - 账户成本配置
-   * @returns {{ actualCost: number, costSource: string, confidenceLevel: string|null }}
+   * @returns {{ actualCost: number, costSource: string, confidenceLevel: string|null, calculationMethod: string }}
    */
   static calculateActualCost({ usage, model: _model, fallback, profile }) {
     const defaultResult = {
       actualCost: fallback?.costs?.total ?? 0,
       costSource: 'calculated',
       confidenceLevel: fallback?.confidenceLevel || null,
-      billingPeriod: this.getCurrentBillingPeriod()
+      billingPeriod: this.getCurrentBillingPeriod(),
+      calculationMethod: 'standard'
     }
 
     if (!profile) {
@@ -338,7 +446,8 @@ class CostCalculator {
     }
 
     const trackingMode = profile.costTrackingMode || 'standard'
-    const confidenceLevel = profile.confidenceLevel || defaultResult.confidenceLevel || null
+    const billingType = profile.billingType || 'standard'
+    const confidenceLevel = profile.confidenceLevel || 'low'
     const totalTokens =
       (usage.input_tokens || 0) +
       (usage.output_tokens || 0) +
@@ -346,6 +455,63 @@ class CostCalculator {
       (usage.cache_read_input_tokens || 0)
     const requests = usage.requests || 1
 
+    // 处理阶梯定价
+    if (billingType === 'tiered' && profile.tieredPricing?.length > 0) {
+      const actualCost = this.calculateTieredCost({
+        totalTokens,
+        tieredPricing: profile.tieredPricing
+      })
+
+      return {
+        actualCost,
+        costSource: 'manual',
+        confidenceLevel,
+        billingPeriod: this.getCurrentBillingPeriod(),
+        calculationMethod: 'tiered_pricing'
+      }
+    }
+
+    // 处理积分制计费
+    if (billingType === 'point_based' && profile.pointConversion) {
+      const actualCost = this.calculatePointBasedCost({
+        usage,
+        pointConversion: profile.pointConversion
+      })
+
+      return {
+        actualCost,
+        costSource: 'manual',
+        confidenceLevel,
+        billingPeriod: this.getCurrentBillingPeriod(),
+        calculationMethod: 'point_based'
+      }
+    }
+
+    // 处理混合计费
+    if (billingType === 'hybrid' && profile.pricingFormula) {
+      let actualCost = this.calculateHybridCost({
+        usage,
+        pricingFormula: profile.pricingFormula
+      })
+
+      // 添加固定费用(按比例分摊到每个请求)
+      if (profile.fixedCosts && profile.metadata?.estimatedMonthlyRequests) {
+        const fixedCostPerRequest =
+          Object.values(profile.fixedCosts).reduce((sum, cost) => sum + cost, 0) /
+          profile.metadata.estimatedMonthlyRequests
+        actualCost += fixedCostPerRequest
+      }
+
+      return {
+        actualCost,
+        costSource: 'manual',
+        confidenceLevel,
+        billingPeriod: this.getCurrentBillingPeriod(),
+        calculationMethod: 'hybrid'
+      }
+    }
+
+    // 原有的 manual_billing 逻辑
     if (trackingMode === 'manual_billing') {
       const rates = profile.derivedRates || {}
       let actualCost = 0
@@ -378,7 +544,8 @@ class CostCalculator {
         actualCost,
         costSource: 'manual',
         confidenceLevel,
-        billingPeriod: this.getCurrentBillingPeriod()
+        billingPeriod: this.getCurrentBillingPeriod(),
+        calculationMethod: 'manual_billing'
       }
     }
 
@@ -389,7 +556,8 @@ class CostCalculator {
         actualCost: baseCost * multiplier,
         costSource: 'estimated',
         confidenceLevel,
-        billingPeriod: this.getCurrentBillingPeriod()
+        billingPeriod: this.getCurrentBillingPeriod(),
+        calculationMethod: 'estimated'
       }
     }
 
@@ -397,7 +565,8 @@ class CostCalculator {
       actualCost: fallback?.costs?.total || 0,
       costSource: 'calculated',
       confidenceLevel,
-      billingPeriod: this.getCurrentBillingPeriod()
+      billingPeriod: this.getCurrentBillingPeriod(),
+      calculationMethod: 'standard'
     }
   }
 

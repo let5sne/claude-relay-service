@@ -23,6 +23,14 @@ async function getAccountCostProfile(accountId) {
         confidence_level,
         notes,
         metadata,
+        pricing_formula,
+        tiered_pricing,
+        fixed_costs,
+        point_conversion,
+        inferred_rates,
+        inference_quality,
+        last_verified_at,
+        verification_status,
         created_at,
         updated_at
       FROM account_cost_profiles
@@ -47,6 +55,14 @@ async function getAccountCostProfile(accountId) {
     confidenceLevel: row.confidence_level,
     notes: row.notes,
     metadata: row.metadata || {},
+    pricingFormula: row.pricing_formula || {},
+    tieredPricing: row.tiered_pricing || [],
+    fixedCosts: row.fixed_costs || {},
+    pointConversion: row.point_conversion || {},
+    inferredRates: row.inferred_rates || {},
+    inferenceQuality: row.inference_quality || {},
+    lastVerifiedAt: row.last_verified_at,
+    verificationStatus: row.verification_status,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   }
@@ -68,7 +84,15 @@ async function upsertAccountCostProfile(profile) {
     baselineAccountId = null,
     confidenceLevel = null,
     notes = null,
-    metadata = {}
+    metadata = {},
+    pricingFormula = {},
+    tieredPricing = [],
+    fixedCosts = {},
+    pointConversion = {},
+    inferredRates = {},
+    inferenceQuality = {},
+    lastVerifiedAt = null,
+    verificationStatus = null
   } = profile
 
   if (!accountId) {
@@ -87,20 +111,39 @@ async function upsertAccountCostProfile(profile) {
         baseline_account_id,
         confidence_level,
         notes,
-        metadata
+        metadata,
+        pricing_formula,
+        tiered_pricing,
+        fixed_costs,
+        point_conversion,
+        inferred_rates,
+        inference_quality,
+        last_verified_at,
+        verification_status
       ) VALUES (
-        $1, $2, $3, $4, COALESCE($5::jsonb, '{}'::jsonb), $6, $7, $8, $9, COALESCE($10::jsonb, '{}'::jsonb)
+        $1, $2, $3, $4, COALESCE($5::jsonb, '{}'::jsonb), $6, $7, $8, $9, COALESCE($10::jsonb, '{}'::jsonb),
+        COALESCE($11::jsonb, '{}'::jsonb), COALESCE($12::jsonb, '[]'::jsonb), COALESCE($13::jsonb, '{}'::jsonb),
+        COALESCE($14::jsonb, '{}'::jsonb), COALESCE($15::jsonb, '{}'::jsonb), COALESCE($16::jsonb, '{}'::jsonb),
+        $17, $18
       )
       ON CONFLICT (account_id) DO UPDATE SET
-        billing_type = EXCLUDED.billing_type,
-        cost_tracking_mode = EXCLUDED.cost_tracking_mode,
-        currency = EXCLUDED.currency,
-        derived_rates = EXCLUDED.derived_rates,
-        relative_efficiency = EXCLUDED.relative_efficiency,
-        baseline_account_id = EXCLUDED.baseline_account_id,
-        confidence_level = EXCLUDED.confidence_level,
-        notes = EXCLUDED.notes,
+        billing_type = COALESCE(EXCLUDED.billing_type, account_cost_profiles.billing_type),
+        cost_tracking_mode = COALESCE(EXCLUDED.cost_tracking_mode, account_cost_profiles.cost_tracking_mode),
+        currency = COALESCE(EXCLUDED.currency, account_cost_profiles.currency),
+        derived_rates = COALESCE(EXCLUDED.derived_rates, account_cost_profiles.derived_rates),
+        relative_efficiency = COALESCE(EXCLUDED.relative_efficiency, account_cost_profiles.relative_efficiency),
+        baseline_account_id = COALESCE(EXCLUDED.baseline_account_id, account_cost_profiles.baseline_account_id),
+        confidence_level = COALESCE(EXCLUDED.confidence_level, account_cost_profiles.confidence_level),
+        notes = COALESCE(EXCLUDED.notes, account_cost_profiles.notes),
         metadata = account_cost_profiles.metadata || EXCLUDED.metadata,
+        pricing_formula = COALESCE(EXCLUDED.pricing_formula, account_cost_profiles.pricing_formula),
+        tiered_pricing = COALESCE(EXCLUDED.tiered_pricing, account_cost_profiles.tiered_pricing),
+        fixed_costs = COALESCE(EXCLUDED.fixed_costs, account_cost_profiles.fixed_costs),
+        point_conversion = COALESCE(EXCLUDED.point_conversion, account_cost_profiles.point_conversion),
+        inferred_rates = COALESCE(EXCLUDED.inferred_rates, account_cost_profiles.inferred_rates),
+        inference_quality = COALESCE(EXCLUDED.inference_quality, account_cost_profiles.inference_quality),
+        last_verified_at = COALESCE(EXCLUDED.last_verified_at, account_cost_profiles.last_verified_at),
+        verification_status = COALESCE(EXCLUDED.verification_status, account_cost_profiles.verification_status),
         updated_at = NOW()
       RETURNING *
     `,
@@ -114,7 +157,15 @@ async function upsertAccountCostProfile(profile) {
       baselineAccountId,
       confidenceLevel,
       notes,
-      JSON.stringify(metadata)
+      JSON.stringify(metadata),
+      JSON.stringify(pricingFormula),
+      JSON.stringify(tieredPricing),
+      JSON.stringify(fixedCosts),
+      JSON.stringify(pointConversion),
+      JSON.stringify(inferredRates),
+      JSON.stringify(inferenceQuality),
+      lastVerifiedAt,
+      verificationStatus
     ]
   )
 
@@ -130,6 +181,14 @@ async function upsertAccountCostProfile(profile) {
     confidenceLevel: row.confidence_level,
     notes: row.notes,
     metadata: row.metadata || {},
+    pricingFormula: row.pricing_formula || {},
+    tieredPricing: row.tiered_pricing || [],
+    fixedCosts: row.fixed_costs || {},
+    pointConversion: row.point_conversion || {},
+    inferredRates: row.inferred_rates || {},
+    inferenceQuality: row.inference_quality || {},
+    lastVerifiedAt: row.last_verified_at,
+    verificationStatus: row.verification_status,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   }

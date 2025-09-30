@@ -279,6 +279,14 @@ getModelCategoryLabel(category) // 获取类别显示名称
 
 ---
 
+## 相关文档
+
+- **[精确成本计算改进方案](./ACCURATE_COST_CALCULATION_PLAN.md)**: 支持不透明计价方式的详细设计
+- **[成本追踪快速入门](./docs/COST_TRACKING_GUIDE.md)**: 成本追踪功能使用指南
+- **[成本追踪示例代码](./examples/cost_tracking_examples.js)**: 各种计价方式的配置示例
+
+---
+
 ## 版本信息
 
 - **改进日期**: 2025-01-15

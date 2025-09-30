@@ -1241,9 +1241,11 @@ const abortController = ref(new AbortController())
 // 计算属性：隐藏管理后台按钮（反转 showAdminButton 的值）
 const hideAdminButton = computed({
   get() {
+    if (!isMounted.value) return false
     return !oemSettings.value.showAdminButton
   },
   set(value) {
+    if (!isMounted.value) return
     oemSettings.value.showAdminButton = !value
   }
 })
