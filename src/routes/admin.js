@@ -4315,6 +4315,122 @@ router.get('/accounts/:accountId/usage-history', authenticateAdmin, async (req, 
   }
 })
 
+// 获取账户使用明细
+router.get('/accounts/:accountId/usage-breakdown', authenticateAdmin, async (req, res) => {
+  try {
+    const { accountId } = req.params
+    const {
+      range = 'total',
+      date = null,
+      month = null,
+      limit = 20,
+      offset = 0,
+      order = 'desc'
+    } = req.query
+
+    const parsedLimit = Math.min(100, Math.max(1, parseInt(limit, 10) || 20))
+    const parsedOffset = Math.max(0, parseInt(offset, 10) || 0)
+    const normalizedOrder = order === 'asc' ? 'asc' : 'desc'
+
+    const breakdown = await accountUsageService.getAccountBreakdown(accountId, {
+      range,
+      date,
+      month,
+      limit: parsedLimit,
+      offset: parsedOffset,
+      order: normalizedOrder
+    })
+
+    const items = breakdown || []
+    const aggregate = items.reduce(
+      (acc, item) => {
+        acc.total += item.requests || 0
+        acc.totalTokens += item.totalTokens || 0
+        acc.totalCost += item.totalCost || 0
+        return acc
+      },
+      { total: 0, totalTokens: 0, totalCost: 0 }
+    )
+
+    return res.json({
+      success: true,
+      items,
+      total: aggregate.total,
+      totalTokens: aggregate.totalTokens,
+      totalCost: aggregate.totalCost,
+      nextOffset: parsedOffset + items.length,
+      hasMore: items.length === parsedLimit
+    })
+  } catch (error) {
+    logger.error('❌ Failed to get account usage breakdown:', error)
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to get account usage breakdown',
+      message: error.message
+    })
+  }
+})
+
+// 获取账户余额快照列表
+router.get('/accounts/:accountId/balance-snapshots', authenticateAdmin, async (req, res) => {
+  try {
+    const { accountId } = req.params
+    const { limit = 50, offset = 0 } = req.query
+
+    const snapshots = await costTrackingService.listBalanceSnapshots(accountId, {
+      limit: parseInt(limit, 10) || 50,
+      offset: parseInt(offset, 10) || 0
+    })
+
+    return res.json({ success: true, data: snapshots })
+  } catch (error) {
+    logger.error('❌ Failed to fetch balance snapshots:', error)
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to fetch balance snapshots',
+      message: error.message
+    })
+  }
+})
+
+// 创建账户余额快照
+router.post('/accounts/:accountId/balance-snapshots', authenticateAdmin, async (req, res) => {
+  try {
+    const { accountId } = req.params
+    const payload = req.body || {}
+
+    if (!payload.capturedAt || payload.balanceUnits === undefined) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields',
+        message: 'capturedAt and balanceUnits are required'
+      })
+    }
+
+    const snapshot = await costTrackingService.createBalanceSnapshot({
+      id: uuidv4(),
+      accountId,
+      capturedAt: payload.capturedAt,
+      balanceUnits: payload.balanceUnits,
+      unitName: payload.unitName || null,
+      currency: payload.currency || null,
+      confidenceLevel: payload.confidenceLevel || null,
+      dataSource: payload.dataSource || 'manual',
+      notes: payload.notes || null,
+      metadata: payload.metadata || {}
+    })
+
+    return res.status(201).json({ success: true, data: snapshot })
+  } catch (error) {
+    logger.error('❌ Failed to create balance snapshot:', error)
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to create balance snapshot',
+      message: error.message
+    })
+  }
+})
+
 // 📊 系统统计
 
 // 获取系统概览
