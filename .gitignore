@@ -41,6 +41,10 @@ pids/
 *.seed
 *.pid.lock
 
+# Backup files
+backups/
+*.sql.bak
+
 # Coverage directory used by tools like istanbul
 coverage/
 *.lcov
