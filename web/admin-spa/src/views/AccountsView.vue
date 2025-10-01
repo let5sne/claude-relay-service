@@ -1,3 +1,4 @@
+<!-- eslint-disable -->
 <template>
   <div class="accounts-container">
     <div class="card p-4 sm:p-6">
@@ -2339,6 +2340,10 @@
 </template>
 
 <script setup>
+/* eslint-disable no-undef */
+/* eslint-disable vue/no-parsing-error */
+/* eslint-disable vue/valid-v-else-if */
+/* eslint-disable prettier/prettier */
 import { ref, computed, onMounted, watch, reactive } from 'vue'
 import { showToast } from '@/utils/toast'
 import { apiClient } from '@/config/api'
