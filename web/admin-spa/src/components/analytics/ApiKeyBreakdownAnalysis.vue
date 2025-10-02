@@ -38,7 +38,10 @@
       </div>
 
       <!-- 空状态 -->
-      <div v-else-if="!selectedAccount" class="flex h-64 flex-col items-center justify-center text-gray-500">
+      <div
+        v-else-if="!selectedAccount"
+        class="flex h-64 flex-col items-center justify-center text-gray-500"
+      >
         <i class="fas fa-key mb-4 text-4xl" />
         <p>请选择一个账户查看 API Key 调用明细</p>
       </div>
@@ -47,19 +50,25 @@
       <div v-else-if="breakdown.length > 0">
         <!-- 汇总信息 -->
         <div class="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
-          <div class="rounded-lg bg-gradient-to-br from-blue-50 to-indigo-50 p-4 dark:from-blue-900/20 dark:to-indigo-900/20">
+          <div
+            class="rounded-lg bg-gradient-to-br from-blue-50 to-indigo-50 p-4 dark:from-blue-900/20 dark:to-indigo-900/20"
+          >
             <div class="text-sm text-gray-600 dark:text-gray-400">API Key 总数</div>
             <div class="mt-1 text-2xl font-bold text-gray-900 dark:text-gray-100">
               {{ breakdown.length }}
             </div>
           </div>
-          <div class="rounded-lg bg-gradient-to-br from-green-50 to-emerald-50 p-4 dark:from-green-900/20 dark:to-emerald-900/20">
+          <div
+            class="rounded-lg bg-gradient-to-br from-green-50 to-emerald-50 p-4 dark:from-green-900/20 dark:to-emerald-900/20"
+          >
             <div class="text-sm text-gray-600 dark:text-gray-400">总请求数</div>
             <div class="mt-1 text-2xl font-bold text-gray-900 dark:text-gray-100">
               {{ formatNumber(totalRequests) }}
             </div>
           </div>
-          <div class="rounded-lg bg-gradient-to-br from-purple-50 to-pink-50 p-4 dark:from-purple-900/20 dark:to-pink-900/20">
+          <div
+            class="rounded-lg bg-gradient-to-br from-purple-50 to-pink-50 p-4 dark:from-purple-900/20 dark:to-pink-900/20"
+          >
             <div class="text-sm text-gray-600 dark:text-gray-400">总成本</div>
             <div class="mt-1 text-2xl font-bold text-gray-900 dark:text-gray-100">
               ${{ totalCost.toFixed(6) }}
@@ -72,31 +81,49 @@
           <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
             <thead class="bg-gray-50 dark:bg-gray-800">
               <tr>
-                <th class="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                <th
+                  class="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400"
+                >
                   API Key
                 </th>
-                <th class="px-4 py-3 text-right text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                <th
+                  class="px-4 py-3 text-right text-xs font-medium uppercase text-gray-500 dark:text-gray-400"
+                >
                   请求数
                 </th>
-                <th class="px-4 py-3 text-right text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                <th
+                  class="px-4 py-3 text-right text-xs font-medium uppercase text-gray-500 dark:text-gray-400"
+                >
                   输入Token
                 </th>
-                <th class="px-4 py-3 text-right text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                <th
+                  class="px-4 py-3 text-right text-xs font-medium uppercase text-gray-500 dark:text-gray-400"
+                >
                   输出Token
                 </th>
-                <th class="px-4 py-3 text-right text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                <th
+                  class="px-4 py-3 text-right text-xs font-medium uppercase text-gray-500 dark:text-gray-400"
+                >
                   总Token
                 </th>
-                <th class="px-4 py-3 text-right text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                <th
+                  class="px-4 py-3 text-right text-xs font-medium uppercase text-gray-500 dark:text-gray-400"
+                >
                   总成本
                 </th>
-                <th class="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                <th
+                  class="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400"
+                >
                   最后使用
                 </th>
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-900">
-              <tr v-for="item in breakdown" :key="item.apiKeyId" class="hover:bg-gray-50 dark:hover:bg-gray-800">
+              <tr
+                v-for="item in breakdown"
+                :key="item.apiKeyId"
+                class="hover:bg-gray-50 dark:hover:bg-gray-800"
+              >
                 <td class="px-4 py-3 text-sm font-medium text-gray-900 dark:text-gray-100">
                   {{ item.apiKeyName }}
                 </td>
@@ -109,10 +136,14 @@
                 <td class="px-4 py-3 text-right text-sm text-gray-600 dark:text-gray-400">
                   {{ formatNumber(item.outputTokens) }}
                 </td>
-                <td class="px-4 py-3 text-right text-sm font-medium text-gray-900 dark:text-gray-100">
+                <td
+                  class="px-4 py-3 text-right text-sm font-medium text-gray-900 dark:text-gray-100"
+                >
                   {{ formatNumber(item.totalTokens) }}
                 </td>
-                <td class="px-4 py-3 text-right text-sm font-medium text-gray-900 dark:text-gray-100">
+                <td
+                  class="px-4 py-3 text-right text-sm font-medium text-gray-900 dark:text-gray-100"
+                >
                   ${{ (item.totalCost || 0).toFixed(6) }}
                 </td>
                 <td class="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
@@ -146,8 +177,12 @@ const filters = ref({
 })
 const breakdown = ref([])
 
-const totalRequests = computed(() => breakdown.value.reduce((sum, item) => sum + (item.requests || 0), 0))
-const totalCost = computed(() => breakdown.value.reduce((sum, item) => sum + (item.totalCost || 0), 0))
+const totalRequests = computed(() =>
+  breakdown.value.reduce((sum, item) => sum + (item.requests || 0), 0)
+)
+const totalCost = computed(() =>
+  breakdown.value.reduce((sum, item) => sum + (item.totalCost || 0), 0)
+)
 
 const formatNumber = (num) => {
   if (num >= 1000000) return (num / 1000000).toFixed(2) + 'M'
@@ -164,7 +199,9 @@ const formatDateTime = (value) => {
 
 const loadAccounts = async () => {
   try {
-    const response = await apiClient.get('/admin/accounts/usage-stats', { params: { range: 'total' } })
+    const response = await apiClient.get('/admin/accounts/usage-stats', {
+      params: { range: 'total' }
+    })
     if (response.success) {
       accounts.value = response.data || []
     }
@@ -181,9 +218,12 @@ const loadBreakdown = async () => {
 
   loading.value = true
   try {
-    const response = await apiClient.get(`/admin/accounts/${selectedAccount.value}/usage-breakdown`, {
-      params: { ...filters.value, limit: 100 }
-    })
+    const response = await apiClient.get(
+      `/admin/accounts/${selectedAccount.value}/usage-breakdown`,
+      {
+        params: { ...filters.value, limit: 100 }
+      }
+    )
     if (response.success) {
       breakdown.value = response.items || []
     }

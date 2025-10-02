@@ -42,19 +42,25 @@
       <div v-else>
         <!-- 汇总卡片 -->
         <div class="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
-          <div class="rounded-lg bg-gradient-to-br from-blue-50 to-indigo-50 p-4 dark:from-blue-900/20 dark:to-indigo-900/20">
+          <div
+            class="rounded-lg bg-gradient-to-br from-blue-50 to-indigo-50 p-4 dark:from-blue-900/20 dark:to-indigo-900/20"
+          >
             <div class="text-sm text-gray-600 dark:text-gray-400">总账户数</div>
             <div class="mt-1 text-2xl font-bold text-gray-900 dark:text-gray-100">
               {{ summary.totalAccounts || 0 }}
             </div>
           </div>
-          <div class="rounded-lg bg-gradient-to-br from-green-50 to-emerald-50 p-4 dark:from-green-900/20 dark:to-emerald-900/20">
+          <div
+            class="rounded-lg bg-gradient-to-br from-green-50 to-emerald-50 p-4 dark:from-green-900/20 dark:to-emerald-900/20"
+          >
             <div class="text-sm text-gray-600 dark:text-gray-400">平均成本/百万Token</div>
             <div class="mt-1 text-2xl font-bold text-gray-900 dark:text-gray-100">
               ${{ (summary.avgCostPerMillion || 0).toFixed(2) }}
             </div>
           </div>
-          <div class="rounded-lg bg-gradient-to-br from-purple-50 to-pink-50 p-4 dark:from-purple-900/20 dark:to-pink-900/20">
+          <div
+            class="rounded-lg bg-gradient-to-br from-purple-50 to-pink-50 p-4 dark:from-purple-900/20 dark:to-pink-900/20"
+          >
             <div class="text-sm text-gray-600 dark:text-gray-400">平均成功率</div>
             <div class="mt-1 text-2xl font-bold text-gray-900 dark:text-gray-100">
               {{ ((summary.avgSuccessRate || 0) * 100).toFixed(1) }}%
@@ -67,31 +73,49 @@
           <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
             <thead class="bg-gray-50 dark:bg-gray-800">
               <tr>
-                <th class="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                <th
+                  class="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400"
+                >
                   账户
                 </th>
-                <th class="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                <th
+                  class="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400"
+                >
                   平台
                 </th>
-                <th class="px-4 py-3 text-right text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                <th
+                  class="px-4 py-3 text-right text-xs font-medium uppercase text-gray-500 dark:text-gray-400"
+                >
                   请求数
                 </th>
-                <th class="px-4 py-3 text-right text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                <th
+                  class="px-4 py-3 text-right text-xs font-medium uppercase text-gray-500 dark:text-gray-400"
+                >
                   总Token
                 </th>
-                <th class="px-4 py-3 text-right text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                <th
+                  class="px-4 py-3 text-right text-xs font-medium uppercase text-gray-500 dark:text-gray-400"
+                >
                   总成本
                 </th>
-                <th class="px-4 py-3 text-right text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                <th
+                  class="px-4 py-3 text-right text-xs font-medium uppercase text-gray-500 dark:text-gray-400"
+                >
                   成本/百万Token
                 </th>
-                <th class="px-4 py-3 text-right text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                <th
+                  class="px-4 py-3 text-right text-xs font-medium uppercase text-gray-500 dark:text-gray-400"
+                >
                   成功率
                 </th>
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-900">
-              <tr v-for="account in accounts" :key="account.accountId" class="hover:bg-gray-50 dark:hover:bg-gray-800">
+              <tr
+                v-for="account in accounts"
+                :key="account.accountId"
+                class="hover:bg-gray-50 dark:hover:bg-gray-800"
+              >
                 <td class="px-4 py-3 text-sm font-medium text-gray-900 dark:text-gray-100">
                   {{ account.accountName }}
                 </td>
@@ -109,16 +133,22 @@
                 <td class="px-4 py-3 text-right text-sm text-gray-900 dark:text-gray-100">
                   ${{ (account.totalCost || 0).toFixed(6) }}
                 </td>
-                <td class="px-4 py-3 text-right text-sm font-medium text-gray-900 dark:text-gray-100">
+                <td
+                  class="px-4 py-3 text-right text-sm font-medium text-gray-900 dark:text-gray-100"
+                >
                   ${{ (account.costPerMillion || 0).toFixed(2) }}
                 </td>
                 <td class="px-4 py-3 text-right text-sm text-gray-900 dark:text-gray-100">
-                  <span :class="[
-                    'rounded-full px-2 py-1 text-xs',
-                    account.successRate >= 0.95 ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' :
-                    account.successRate >= 0.8 ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300' :
-                    'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
-                  ]">
+                  <span
+                    :class="[
+                      'rounded-full px-2 py-1 text-xs',
+                      account.successRate >= 0.95
+                        ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
+                        : account.successRate >= 0.8
+                          ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300'
+                          : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
+                    ]"
+                  >
                     {{ ((account.successRate || 0) * 100).toFixed(1) }}%
                   </span>
                 </td>
@@ -156,7 +186,9 @@ const loadData = async () => {
     const params = { ...filters.value }
     const [summaryRes, accountsRes] = await Promise.all([
       apiClient.get('/admin/dashboard/cost-efficiency/summary', { params }),
-      apiClient.get('/admin/dashboard/cost-efficiency/accounts', { params: { ...params, limit: 50 } })
+      apiClient.get('/admin/dashboard/cost-efficiency/accounts', {
+        params: { ...params, limit: 50 }
+      })
     ])
 
     if (summaryRes.success) {

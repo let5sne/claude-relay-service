@@ -10,17 +10,17 @@
     <!-- 标签页导航 -->
     <div class="mb-6">
       <div class="border-b border-gray-200 dark:border-gray-700">
-        <nav class="-mb-px flex space-x-8" aria-label="Tabs">
+        <nav aria-label="Tabs" class="-mb-px flex space-x-8">
           <button
             v-for="tab in tabs"
             :key="tab.id"
-            @click="activeTab = tab.id"
             :class="[
               activeTab === tab.id
                 ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
                 : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300',
               'group inline-flex items-center border-b-2 px-1 py-4 text-sm font-medium transition-colors'
             ]"
+            @click="activeTab = tab.id"
           >
             <i :class="[tab.icon, 'mr-2']" />
             {{ tab.name }}

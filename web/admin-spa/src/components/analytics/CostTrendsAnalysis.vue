@@ -4,9 +4,7 @@
       <div class="mb-6 flex items-center justify-between">
         <div>
           <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100">成本趋势分析</h3>
-          <p class="mt-1 text-sm text-gray-600 dark:text-gray-400">
-            查看成本变化趋势和预测
-          </p>
+          <p class="mt-1 text-sm text-gray-600 dark:text-gray-400">查看成本变化趋势和预测</p>
         </div>
         <div class="flex gap-3">
           <select
@@ -43,27 +41,38 @@
 
         <!-- 统计卡片 -->
         <div class="grid grid-cols-1 gap-4 md:grid-cols-4">
-          <div class="rounded-lg bg-gradient-to-br from-blue-50 to-indigo-50 p-4 dark:from-blue-900/20 dark:to-indigo-900/20">
+          <div
+            class="rounded-lg bg-gradient-to-br from-blue-50 to-indigo-50 p-4 dark:from-blue-900/20 dark:to-indigo-900/20"
+          >
             <div class="text-sm text-gray-600 dark:text-gray-400">总成本</div>
             <div class="mt-1 text-xl font-bold text-gray-900 dark:text-gray-100">
               ${{ stats.totalCost.toFixed(6) }}
             </div>
           </div>
-          <div class="rounded-lg bg-gradient-to-br from-green-50 to-emerald-50 p-4 dark:from-green-900/20 dark:to-emerald-900/20">
+          <div
+            class="rounded-lg bg-gradient-to-br from-green-50 to-emerald-50 p-4 dark:from-green-900/20 dark:to-emerald-900/20"
+          >
             <div class="text-sm text-gray-600 dark:text-gray-400">平均成本</div>
             <div class="mt-1 text-xl font-bold text-gray-900 dark:text-gray-100">
               ${{ stats.avgCost.toFixed(6) }}
             </div>
           </div>
-          <div class="rounded-lg bg-gradient-to-br from-purple-50 to-pink-50 p-4 dark:from-purple-900/20 dark:to-pink-900/20">
+          <div
+            class="rounded-lg bg-gradient-to-br from-purple-50 to-pink-50 p-4 dark:from-purple-900/20 dark:to-pink-900/20"
+          >
             <div class="text-sm text-gray-600 dark:text-gray-400">最高成本</div>
             <div class="mt-1 text-xl font-bold text-gray-900 dark:text-gray-100">
               ${{ stats.maxCost.toFixed(6) }}
             </div>
           </div>
-          <div class="rounded-lg bg-gradient-to-br from-orange-50 to-red-50 p-4 dark:from-orange-900/20 dark:to-red-900/20">
+          <div
+            class="rounded-lg bg-gradient-to-br from-orange-50 to-red-50 p-4 dark:from-orange-900/20 dark:to-red-900/20"
+          >
             <div class="text-sm text-gray-600 dark:text-gray-400">增长率</div>
-            <div class="mt-1 text-xl font-bold" :class="stats.growthRate >= 0 ? 'text-red-600' : 'text-green-600'">
+            <div
+              class="mt-1 text-xl font-bold"
+              :class="stats.growthRate >= 0 ? 'text-red-600' : 'text-green-600'"
+            >
               {{ stats.growthRate >= 0 ? '+' : '' }}{{ stats.growthRate.toFixed(1) }}%
             </div>
           </div>
@@ -100,7 +109,7 @@ const stats = computed(() => {
     return { totalCost: 0, avgCost: 0, maxCost: 0, growthRate: 0 }
   }
 
-  const costs = trends.value.map(t => t.cost || 0)
+  const costs = trends.value.map((t) => t.cost || 0)
   const totalCost = costs.reduce((sum, c) => sum + c, 0)
   const avgCost = totalCost / costs.length
   const maxCost = Math.max(...costs)
@@ -137,21 +146,23 @@ const createChart = () => {
     chartInstance.destroy()
   }
 
-  const labels = trends.value.map(t => t.date || t.label)
-  const data = trends.value.map(t => t.cost || 0)
+  const labels = trends.value.map((t) => t.date || t.label)
+  const data = trends.value.map((t) => t.cost || 0)
 
   chartInstance = new Chart(chartCanvas.value, {
     type: 'line',
     data: {
       labels,
-      datasets: [{
-        label: '成本',
-        data,
-        borderColor: 'rgb(99, 102, 241)',
-        backgroundColor: 'rgba(99, 102, 241, 0.1)',
-        fill: true,
-        tension: 0.4
-      }]
+      datasets: [
+        {
+          label: '成本',
+          data,
+          borderColor: 'rgb(99, 102, 241)',
+          backgroundColor: 'rgba(99, 102, 241, 0.1)',
+          fill: true,
+          tension: 0.4
+        }
+      ]
     },
     options: {
       responsive: true,
