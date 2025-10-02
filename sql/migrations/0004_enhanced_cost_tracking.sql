@@ -1,8 +1,6 @@
 -- 0004_enhanced_cost_tracking.sql
 -- 增强成本追踪功能,支持不透明计价方式
 
-BEGIN;
-
 -- ============================================================================
 -- 1. 扩展 account_cost_profiles 表
 -- ============================================================================
@@ -379,5 +377,3 @@ WHERE calculation_method IS NULL;
 UPDATE account_cost_profiles
 SET verification_status = 'unverified'
 WHERE verification_status IS NULL;
-
-COMMIT;
