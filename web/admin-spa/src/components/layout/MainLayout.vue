@@ -67,6 +67,7 @@ const initActiveTab = () => {
       Dashboard: 'dashboard',
       ApiKeys: 'apiKeys',
       Accounts: 'accounts',
+      Analytics: 'analytics',
       Tutorial: 'tutorial',
       Settings: 'settings'
     }
@@ -96,6 +97,7 @@ watch(
         Dashboard: 'dashboard',
         ApiKeys: 'apiKeys',
         Accounts: 'accounts',
+        Analytics: 'analytics',
         Tutorial: 'tutorial',
         Settings: 'settings'
       }
