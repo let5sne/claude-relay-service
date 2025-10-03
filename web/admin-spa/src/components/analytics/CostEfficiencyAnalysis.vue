@@ -47,7 +47,7 @@
           >
             <div class="text-sm text-gray-600 dark:text-gray-400">总账户数</div>
             <div class="mt-1 text-2xl font-bold text-gray-900 dark:text-gray-100">
-              {{ summary.totalAccounts || 0 }}
+              {{ summary.totals?.accountCount || 0 }}
             </div>
           </div>
           <div
@@ -55,7 +55,7 @@
           >
             <div class="text-sm text-gray-600 dark:text-gray-400">平均成本/百万Token</div>
             <div class="mt-1 text-2xl font-bold text-gray-900 dark:text-gray-100">
-              ${{ (summary.avgCostPerMillion || 0).toFixed(2) }}
+              ${{ (summary.totals?.costPerMillion || 0).toFixed(2) }}
             </div>
           </div>
           <div
@@ -63,7 +63,7 @@
           >
             <div class="text-sm text-gray-600 dark:text-gray-400">平均成功率</div>
             <div class="mt-1 text-2xl font-bold text-gray-900 dark:text-gray-100">
-              {{ ((summary.avgSuccessRate || 0) * 100).toFixed(1) }}%
+              {{ ((summary.totals?.successRate || 0) * 100).toFixed(1) }}%
             </div>
           </div>
         </div>
