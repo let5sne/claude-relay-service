@@ -195,7 +195,7 @@ const loadData = async () => {
       summary.value = summaryRes.data || {}
     }
     if (accountsRes.success) {
-      accounts.value = accountsRes.items || []
+      accounts.value = accountsRes.data?.items || []
     }
   } catch (error) {
     showToast('加载性价比数据失败', 'error')
