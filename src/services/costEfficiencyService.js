@@ -896,61 +896,57 @@ async function getCostEfficiencyAccounts(options = {}) {
       successRate: derivedMetrics.successRate
     })
 
+    // 返回扁平化结构，兼容前端
     return {
-      account: {
-        id: row.id,
-        name: row.name,
-        platform: row.platform,
-        type: row.type,
-        status: row.status,
-        priority: row.priority
-      },
-      metrics: {
-        ...baseMetrics,
-        // 使用数据库计算值优先，否则使用衍生计算值
-        tokensPerDollar:
-          baseMetrics.tokensPerDollar !== null
-            ? baseMetrics.tokensPerDollar
-            : derivedMetrics.tokensPerDollar,
-        costPerMillion:
-          baseMetrics.costPerMillion !== null
-            ? baseMetrics.costPerMillion
-            : derivedMetrics.costPerMillion,
-        costPerRequest:
-          baseMetrics.costPerRequest !== null
-            ? baseMetrics.costPerRequest
-            : derivedMetrics.costPerRequest,
-        tokensPerRequest:
-          baseMetrics.tokensPerRequest !== null
-            ? baseMetrics.tokensPerRequest
-            : derivedMetrics.tokensPerRequest,
-        successRate:
-          baseMetrics.successRate !== null ? baseMetrics.successRate : derivedMetrics.successRate,
-        errorRate: derivedMetrics.errorRate,
+      // 账户基本信息（扁平化）
+      accountId: row.id,
+      accountName: row.name,
+      platform: row.platform,
+      type: row.type,
+      status: row.status,
+      priority: row.priority,
 
-        // 新增时间维度分析
-        recentCostPerMillion: derivedMetrics.recentCostPerMillion,
-        historicalCostPerMillion: derivedMetrics.historicalCostPerMillion,
-        costTrend: derivedMetrics.costTrend,
-        costTrendPercent: derivedMetrics.costTrendPercent,
-        efficiencyImprovement: derivedMetrics.efficiencyImprovement,
-        usageFrequencyChange: derivedMetrics.usageFrequencyChange
-      },
-      // 模型分类信息
-      modelInfo: {
-        lastModel: row.last_model || null,
-        modelCategory: getModelCategory(row.last_model),
-        modelCategoryLabel: getModelCategoryLabel(getModelCategory(row.last_model))
-      },
-      // 使用模式分析
-      usageAnalysis,
-      // 缓存效率分析
-      cacheAnalysis,
-      // 异常检测结果
-      anomalyDetection,
+      // 指标数据（扁平化）
+      ...baseMetrics,
+      tokensPerDollar:
+        baseMetrics.tokensPerDollar !== null
+          ? baseMetrics.tokensPerDollar
+          : derivedMetrics.tokensPerDollar,
+      costPerMillion:
+        baseMetrics.costPerMillion !== null
+          ? baseMetrics.costPerMillion
+          : derivedMetrics.costPerMillion,
+      costPerRequest:
+        baseMetrics.costPerRequest !== null
+          ? baseMetrics.costPerRequest
+          : derivedMetrics.costPerRequest,
+      tokensPerRequest:
+        baseMetrics.tokensPerRequest !== null
+          ? baseMetrics.tokensPerRequest
+          : derivedMetrics.tokensPerRequest,
+      successRate:
+        baseMetrics.successRate !== null ? baseMetrics.successRate : derivedMetrics.successRate,
+      errorRate: derivedMetrics.errorRate,
+
+      // 时间维度分析
+      recentCostPerMillion: derivedMetrics.recentCostPerMillion,
+      historicalCostPerMillion: derivedMetrics.historicalCostPerMillion,
+      costTrend: derivedMetrics.costTrend,
+      costTrendPercent: derivedMetrics.costTrendPercent,
+      efficiencyImprovement: derivedMetrics.efficiencyImprovement,
+      usageFrequencyChange: derivedMetrics.usageFrequencyChange,
+
+      // 其他信息
       apiKeyCount: toNumber(row.api_key_count, 0),
       lastActivityAt: row.last_activity_at || null,
-      lastModel: row.last_model || null
+      lastModel: row.last_model || null,
+      modelCategory: getModelCategory(row.last_model),
+      modelCategoryLabel: getModelCategoryLabel(getModelCategory(row.last_model)),
+
+      // 详细分析（嵌套保留，供需要的地方使用）
+      usageAnalysis,
+      cacheAnalysis,
+      anomalyDetection
     }
   })
 
