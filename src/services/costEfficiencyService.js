@@ -573,7 +573,7 @@ function buildFilters({ platform, accountIds, bounds }) {
     index += 2
   }
 
-  if (platform) {
+  if (platform && platform !== 'all') {
     conditions.push(`COALESCE(a.platform, a.type) = $${index}`)
     params.push(platform)
     index += 1
