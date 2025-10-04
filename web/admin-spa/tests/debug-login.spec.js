@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test } from '@playwright/test'
 
 test('调试登录流程', async ({ page }) => {
   // 启用详细日志
