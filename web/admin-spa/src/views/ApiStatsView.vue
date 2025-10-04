@@ -138,6 +138,13 @@
           <!-- 模型使用统计 -->
           <ModelUsageStats />
         </div>
+
+        <!-- 请求明细记录 -->
+        <RequestDetailsTable
+          v-if="apiId && !multiKeyMode"
+          :api-id="apiId"
+          :range="statsPeriod === 'daily' ? 'today' : 'month'"
+        />
       </div>
     </div>
 
@@ -164,6 +171,7 @@ import TokenDistribution from '@/components/apistats/TokenDistribution.vue'
 import LimitConfig from '@/components/apistats/LimitConfig.vue'
 import AggregatedStatsCard from '@/components/apistats/AggregatedStatsCard.vue'
 import ModelUsageStats from '@/components/apistats/ModelUsageStats.vue'
+import RequestDetailsTable from '@/components/apistats/RequestDetailsTable.vue'
 import TutorialView from './TutorialView.vue'
 
 const route = useRoute()
