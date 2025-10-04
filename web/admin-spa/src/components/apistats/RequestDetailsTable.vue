@@ -159,7 +159,7 @@
 
 <script setup>
 import { ref } from 'vue'
-import { apiClient } from '@/config/api'
+import { apiStatsClient } from '@/config/apiStats'
 
 const props = defineProps({
   apiId: {
@@ -186,12 +186,13 @@ async function loadDetails() {
   expanded.value = true
 
   try {
-    const response = await apiClient.get(`/admin/api-keys/${props.apiId}/usage-details`, {
-      params: {
-        range: props.range,
-        limit: 100
+    // 使用 apiStatsClient 调用 API
+    const response = await apiStatsClient.request(
+      `/admin/api-keys/${props.apiId}/usage-details?range=${props.range}&limit=100`,
+      {
+        method: 'GET'
       }
-    })
+    )
 
     if (response.success && response.data) {
       details.value = response.data
