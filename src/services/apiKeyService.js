@@ -1361,7 +1361,12 @@ class ApiKeyService {
           metadata: {
             accountType: accountType || 'unknown',
             isLongContext: usageRecord.isLongContext,
-            source: 'redis-sync'
+            source: 'redis-sync',
+            // 保留上游传递的标记（如 _no_usage_data）
+            ...(usageObject._no_usage_data && {
+              _no_usage_data: true,
+              _requires_manual_review: true
+            })
           },
           requestStatus,
           responseLatencyMs,

@@ -45,6 +45,11 @@
       <div v-show="activeTab === 'cost-trends'" class="space-y-6">
         <CostTrendsAnalysis />
       </div>
+
+      <!-- 成本配置与验证 - 使用 v-if 懒加载 -->
+      <div v-if="activeTab === 'cost-tracking'" class="space-y-6">
+        <CostTrackingManagement />
+      </div>
     </div>
   </div>
 </template>
@@ -54,6 +59,7 @@ import { ref } from 'vue'
 import CostEfficiencyAnalysis from '@/components/analytics/CostEfficiencyAnalysis.vue'
 import ApiKeyBreakdownAnalysis from '@/components/analytics/ApiKeyBreakdownAnalysis.vue'
 import CostTrendsAnalysis from '@/components/analytics/CostTrendsAnalysis.vue'
+import CostTrackingManagement from '@/components/analytics/CostTrackingManagement.vue'
 
 const activeTab = ref('cost-efficiency')
 
@@ -72,6 +78,11 @@ const tabs = [
     id: 'cost-trends',
     name: '成本趋势分析',
     icon: 'fas fa-chart-area'
+  },
+  {
+    id: 'cost-tracking',
+    name: '成本配置与验证',
+    icon: 'fas fa-cog'
   }
 ]
 </script>

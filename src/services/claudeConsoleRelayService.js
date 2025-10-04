@@ -474,6 +474,11 @@ class ClaudeConsoleRelayService {
               if (lines.length > 0 && !responseStream.destroyed) {
                 const linesToForward = lines.join('\n') + (lines.length > 0 ? '\n' : '')
 
+                // 记录原始数据（前100个字符）
+                logger.info(
+                  `📨 Raw SSE chunk (${lines.length} lines): ${linesToForward.substring(0, 100)}...`
+                )
+
                 // 应用流转换器如果有
                 if (streamTransformer) {
                   const transformed = streamTransformer(linesToForward)
@@ -486,10 +491,30 @@ class ClaudeConsoleRelayService {
 
                 // 解析SSE数据寻找usage信息
                 for (const line of lines) {
-                  if (line.startsWith('data: ') && line.length > 6) {
+                  // 支持 "data: {...}" 和 "data:{...}" 两种格式
+                  if (line.startsWith('data:')) {
                     try {
-                      const jsonStr = line.slice(6)
+                      // 移除 "data:" 前缀，可能有空格也可能没有
+                      const jsonStr = line.startsWith('data: ') ? line.slice(6) : line.slice(5)
+                      if (!jsonStr || jsonStr.length === 0) {
+                        continue
+                      }
+
+                      logger.info(`🔍 Parsing JSON: ${jsonStr.substring(0, 150)}...`)
                       const data = JSON.parse(jsonStr)
+
+                      // 调试：记录所有事件类型和数据
+                      if (data.type) {
+                        logger.info(`📡 SSE event: ${data.type}`)
+                        // 记录关键事件的完整数据
+                        if (
+                          data.type === 'message_start' ||
+                          data.type === 'message_delta' ||
+                          data.type === 'message_stop'
+                        ) {
+                          logger.info(`📊 Event data: ${JSON.stringify(data)}`)
+                        }
+                      }
 
                       // 统一抽取 usage 的辅助函数（兼容多种上游格式）
                       const extractUsage = (obj) => {
@@ -508,11 +533,13 @@ class ClaudeConsoleRelayService {
                       const usageInEvent = extractUsage(data)
 
                       // 收集usage数据（出现于 message_start 或任意事件的 *.usage）
+                      // 注意：message_start 中的 output_tokens 只是占位符(通常为1)，真实值在 message_delta 中
                       if (
                         (data.type === 'message_start' && data.message && data.message.usage) ||
                         usageInEvent
                       ) {
                         const u = usageInEvent || data.message.usage
+                        logger.debug(`📊 Found usage data in ${data.type}:`, JSON.stringify(u))
                         if (u) {
                           if (u.input_tokens !== undefined) {
                             collectedUsageData.input_tokens = u.input_tokens || 0
@@ -525,6 +552,8 @@ class ClaudeConsoleRelayService {
                             collectedUsageData.cache_read_input_tokens =
                               u.cache_read_input_tokens || 0
                           }
+                          // 不要在 message_start 中收集 output_tokens，因为它只是占位符
+                          // 真实的 output_tokens 会在 message_delta 中更新
                         }
                         collectedUsageData.model =
                           data.message?.model || collectedUsageData.model || body?.model
@@ -552,17 +581,20 @@ class ClaudeConsoleRelayService {
                         }
                       }
 
-                      // 输出 token 兼容：message_delta.usage 或任何事件中的 usage/output_tokens
-                      const u2 = usageInEvent || data.usage
+                      // 输出 token 只在 message_delta 中更新（message_start 中的值是占位符）
                       if (
-                        (data.type === 'message_delta' &&
-                          data.usage &&
-                          data.usage.output_tokens !== undefined) ||
-                        (u2 && u2.output_tokens !== undefined)
+                        data.type === 'message_delta' &&
+                        data.usage &&
+                        data.usage.output_tokens !== undefined
                       ) {
-                        collectedUsageData.output_tokens = (u2 && u2.output_tokens) || 0
+                        collectedUsageData.output_tokens = data.usage.output_tokens || 0
+                        logger.debug(
+                          `📊 Found output_tokens in message_delta: ${collectedUsageData.output_tokens}`
+                        )
 
+                        // 只有在 message_delta 中才触发回调（此时 output_tokens 是真实值）
                         if (collectedUsageData.input_tokens !== undefined && !finalUsageReported) {
+                          logger.info(`✅ Complete usage data collected - reporting to callback`)
                           usageCallback({ ...collectedUsageData, accountId })
                           finalUsageReported = true
                         }
@@ -647,6 +679,25 @@ class ClaudeConsoleRelayService {
                 } else {
                   responseStream.write(buffer)
                 }
+              }
+
+              // 如果流结束时仍未捕获到 usage 数据，记录一条基本请求（避免对账不一致）
+              if (!finalUsageReported && usageCallback) {
+                logger.warn(
+                  `⚠️ Stream completed without usage data - recording basic request for billing consistency (Account: ${account?.name || accountId})`
+                )
+                // 记录一条基本请求，token 数为 0，但标记为需要人工核对
+                usageCallback({
+                  accountId,
+                  model: collectedUsageData.model || body?.model || 'unknown',
+                  input_tokens: 0,
+                  output_tokens: 0,
+                  cache_creation_input_tokens: 0,
+                  cache_read_input_tokens: 0,
+                  // 添加元数据标记，表明这是一个没有 usage 数据的请求
+                  _no_usage_data: true,
+                  _requires_manual_review: true
+                })
               }
 
               // 确保流正确结束

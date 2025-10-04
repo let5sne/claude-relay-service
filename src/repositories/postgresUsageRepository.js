@@ -469,6 +469,8 @@ async function getAccountUsageBreakdown(accountId, options = {}) {
       COALESCE(SUM(ur.requests), 0) AS requests,
       COALESCE(SUM(ur.input_tokens), 0) AS input_tokens,
       COALESCE(SUM(ur.output_tokens), 0) AS output_tokens,
+      COALESCE(SUM(ur.cache_create_tokens), 0) AS cache_create_tokens,
+      COALESCE(SUM(ur.cache_read_tokens), 0) AS cache_read_tokens,
       COALESCE(SUM(ur.total_tokens), 0) AS total_tokens,
       COALESCE(SUM(ur.total_cost), 0) AS total_cost,
       (ARRAY_AGG(ur.model ORDER BY ur.occurred_at DESC))[1] AS last_model,

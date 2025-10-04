@@ -509,11 +509,12 @@ async function handleMessagesRequest(req, res) {
         )
       }
 
-      // 流式请求完成后 - 如果没有捕获到usage数据，记录警告但不进行估算
+      // 流式请求完成后 - 检查是否捕获到usage数据
+      // 注意：claudeConsoleRelayService 现在会在流结束时自动记录基本请求（即使没有 usage 数据）
       setTimeout(() => {
         if (!usageDataCaptured) {
-          logger.warn(
-            '⚠️ No usage data captured from SSE stream - no statistics recorded (official data only)'
+          logger.info(
+            '📊 Stream completed - usage data will be recorded by relay service (may have zero tokens if no usage info available)'
           )
         }
       }, 1000) // 1秒后检查

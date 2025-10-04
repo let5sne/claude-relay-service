@@ -276,6 +276,8 @@ async function getAccountBreakdown(accountId, options = {}) {
           requests: normalizeNumber(row.requests),
           inputTokens: normalizeNumber(row.input_tokens),
           outputTokens: normalizeNumber(row.output_tokens),
+          cacheCreateTokens: normalizeNumber(row.cache_create_tokens),
+          cacheReadTokens: normalizeNumber(row.cache_read_tokens),
           totalTokens: normalizeNumber(row.total_tokens),
           totalCost: normalizeNumber(row.total_cost),
           cost: normalizeNumber(row.total_cost),

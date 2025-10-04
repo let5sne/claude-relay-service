@@ -4371,6 +4371,66 @@ router.get('/accounts/:accountId/usage-breakdown', authenticateAdmin, async (req
   }
 })
 
+// 获取 API Key 的详细请求列表
+router.get('/api-keys/:apiKeyId/usage-details', authenticateAdmin, async (req, res) => {
+  try {
+    const { apiKeyId } = req.params
+    const { range = '30d', limit = 50, offset = 0 } = req.query
+
+    const db = require('../models/db')
+    if (!db.isEnabled()) {
+      return res.json({ success: true, items: [], total: 0 })
+    }
+
+    const postgresUsageRepository = require('../repositories/postgresUsageRepository')
+    const bounds = postgresUsageRepository.getRangeBounds(range)
+
+    const params = [apiKeyId]
+    let whereClause = 'api_key_id = $1'
+
+    if (bounds.start && bounds.end) {
+      params.push(bounds.start, bounds.end)
+      whereClause += ` AND occurred_at >= $${params.length - 1} AND occurred_at < $${params.length}`
+    }
+
+    const query = `
+      SELECT
+        id,
+        occurred_at,
+        model,
+        input_tokens,
+        output_tokens,
+        cache_create_tokens,
+        cache_read_tokens,
+        total_tokens,
+        total_cost,
+        request_status,
+        response_latency_ms,
+        metadata
+      FROM usage_records
+      WHERE ${whereClause}
+      ORDER BY occurred_at DESC
+      LIMIT ${Math.min(200, parseInt(limit) || 50)}
+      OFFSET ${Math.max(0, parseInt(offset) || 0)}
+    `
+
+    const result = await db.query(query, params)
+
+    return res.json({
+      success: true,
+      items: result.rows,
+      total: result.rows.length
+    })
+  } catch (error) {
+    logger.error('❌ Failed to get API key usage details:', error)
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to get API key usage details',
+      message: error.message
+    })
+  }
+})
+
 // 获取账户余额快照列表
 router.get('/accounts/:accountId/balance-snapshots', authenticateAdmin, async (req, res) => {
   try {
@@ -8571,6 +8631,9 @@ router.post('/accounts/:accountId/validate-costs', async (req, res) => {
     }
 
     const result = await costInferenceService.validateCostAccuracy(accountId, billingPeriod)
+
+    // 调试日志：查看返回的数据
+    logger.info('Cost validation result:', { accountId, billingPeriod, result })
 
     res.json(result)
   } catch (error) {

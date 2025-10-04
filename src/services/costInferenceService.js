@@ -236,14 +236,18 @@ async function generateCostComparisonReport(accountId, startDate, endDate) {
   }
 
   // 找出偏差最大的月份
-  const maxDeviationMonth = monthlyData.reduce((max, data) =>
-    data.deviation > max.deviation ? data : max
-  )
-
-  if (maxDeviationMonth.deviation > 10) {
-    recommendations.push(
-      `${maxDeviationMonth.period} 偏差较大(${maxDeviationMonth.deviation.toFixed(2)}%)，建议检查该月是否有特殊情况`
+  if (monthlyData.length > 0) {
+    const maxDeviationMonth = monthlyData.reduce((max, data) =>
+      data.deviation > max.deviation ? data : max
     )
+
+    if (maxDeviationMonth.deviation > 10) {
+      recommendations.push(
+        `${maxDeviationMonth.period} 偏差较大(${maxDeviationMonth.deviation.toFixed(2)}%)，建议检查该月是否有特殊情况`
+      )
+    }
+  } else {
+    recommendations.push('尚无历史数据可供对比，请先录入账单数据')
   }
 
   return {
