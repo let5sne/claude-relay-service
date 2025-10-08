@@ -1110,7 +1110,6 @@ class ApiKeyService {
         if (!costInfo || typeof costInfo.totalCost !== 'number') {
           logger.error(`❌ Invalid cost calculation result for model ${model}:`, costInfo)
           // 使用 CostCalculator 作为后备
-          const CostCalculator = require('../utils/costCalculator')
           const fallbackCost = CostCalculator.calculateCost(usageObject, model)
           if (fallbackCost && fallbackCost.costs && fallbackCost.costs.total > 0) {
             logger.warn(
@@ -1130,7 +1129,6 @@ class ApiKeyService {
         logger.error(`   Usage object:`, JSON.stringify(usageObject))
         // 使用 CostCalculator 作为后备
         try {
-          const CostCalculator = require('../utils/costCalculator')
           const fallbackCost = CostCalculator.calculateCost(usageObject, model)
           if (fallbackCost && fallbackCost.costs && fallbackCost.costs.total > 0) {
             logger.warn(
