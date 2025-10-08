@@ -7,7 +7,7 @@
 [![Redis](https://img.shields.io/badge/Redis-6+-red.svg)](https://redis.io/)
 [![Docker](https://img.shields.io/badge/Docker-Ready-blue.svg)](https://www.docker.com/)
 [![Docker Build](https://github.com/Wei-Shaw/claude-relay-service/actions/workflows/auto-release-pipeline.yml/badge.svg)](https://github.com/Wei-Shaw/claude-relay-service/actions/workflows/auto-release-pipeline.yml)
-[![Docker Pulls](https://img.shields.io/docker/pulls/let5see/claude-relay-service)](https://hub.docker.com/r/let5see/claude-relay-service)
+[![Docker Pulls](https://img.shields.io/docker/pulls/weishaw/claude-relay-service)](https://hub.docker.com/r/weishaw/claude-relay-service)
 
 **🔐 自行搭建Claude API中转服务，支持多账户管理**
 
@@ -21,11 +21,10 @@
 
 <div align="center">
 
-| 平台 | 类型 | 服务 | 介绍 |
-|:---|:---|:---|:---|
+| 平台                              | 类型            | 服务                                          | 介绍                                                  |
+| :-------------------------------- | :-------------- | :-------------------------------------------- | :---------------------------------------------------- |
 | **[pincc.ai](https://pincc.ai/)** | 🏆 **官方运营** | <small>✅ Claude Code<br>✅ Codex CLI</small> | 项目直营，提供稳定的 Claude Code / Codex CLI 拼车服务 |
-| **[ctok.ai](https://ctok.ai/)** | 🤝 合作伙伴 | <small>✅ Claude Code<br>✅ Codex CLI</small> | 社区认证，提供 Claude Code / Codex CLI 拼车 |
-
+| **[ctok.ai](https://ctok.ai/)**   | 🤝 合作伙伴     | <small>✅ Claude Code<br>✅ Codex CLI</small> | 社区认证，提供 Claude Code / Codex CLI 拼车           |
 
 </div>
 
@@ -93,31 +92,6 @@
 
 ---
 
-## 💰 费用与限制配置（重要）
-
-系统为每个 API Key 提供精细的用量/费用限制能力，便于成本控制：
-
-- 每日费用限制 (USD)：`dailyCostLimit`
-  - 超过设定值将返回 429，第二天 00:00 重置
-  - 统计页“限制配置”展示“今日费用/每日上限”及进度条
-- 总费用限制 (USD)：`totalCostLimit`
-  - 该 Key 的“累计历史费用”达到上限后，永久返回 429（除非你手动提高或清零）
-  - 统计页“限制配置”展示“累计费用/总费用上限”及进度条
-- 时间窗口限流（分钟窗）：
-  - `rateLimitWindow` + `rateLimitRequests`（请求数）
-  - `rateLimitWindow` + `rateLimitCost`（费用）
-  - 两者为“或”的关系，任一达到即限流
-
-创建/编辑 API Key 支持以上字段：
-
-- 单个创建：创建弹窗可直接设置“每日费用限制 / 总费用限制 / 时间窗口费用限制”等
-- 批量创建：支持 `totalCostLimit` 与 `rateLimitCost`，在创建弹窗中填写后会应用到“每个新建的 Key”
-- 编辑 API Key：可在“编辑”弹窗中随时调整上述限制
-
-提示：在“API Key 使用统计”页面（`/admin-next/api-stats`），当查询具体 Key 时，“限制配置”卡片会实时展示该 Key 的“每日费用限制 / 总费用限制 / 时间窗口限制”的当前使用量与上限。
-
----
-
 ## 📋 部署要求
 
 ### 硬件要求（最低配置）
@@ -134,43 +108,6 @@
 - **Node.js** 18或更高版本
 - **Redis** 6或更高版本
 - **操作系统**: 建议Linux
-
-### PostgreSQL（可选但推荐）
-
-为了支撑更复杂的账户用量统计与长期归档，本项目新增了 PostgreSQL 存储层：
-
-- **版本要求**: PostgreSQL 13 及以上
-- **用途**: 持久化账户/API Key 元数据、用量明细，支持跨时间范围的汇总与明细查询
-- **配置方式**: 在 `.env` 中配置 `POSTGRES_URL` 或逐项填写 `POSTGRES_HOST/PORT/USER/PASSWORD/DB`
-- **初始化**:
-  ```bash
-  npm run db:migrate   # 执行 SQL 迁移
-  npm run db:seed      # （可选）导入演示数据
-  ```
-- **回退策略**: 如果未启用 PostgreSQL，系统会自动回退到 Redis 的实时能力，但将无法使用新的总用量统计与明细分析功能
-
-#### 回填历史数据（可选）
-
-生产环境已有的账户/API Key 与用量仍存于 Redis，可通过回填脚本同步至 PostgreSQL：
-
-```bash
-# 1. 确保连接信息正确，启用 Postgres
-export POSTGRES_ENABLED=true
-export POSTGRES_URL=postgres://user:password@host:5432/claude_relay
-
-# 2. 运行回填脚本
-npm run db:backfill             # 正式写入
-# npm run db:backfill -- --dry-run   # 预览将写入的内容
-# npm run db:backfill -- --skip-usage # 仅同步账户与 API Key 元数据
-```
-
-脚本会：
-
-- 同步所有账户（Claude / Console / Gemini / Bedrock / OpenAI / Azure OpenAI / OpenAI-Responses / CCR）到 `accounts` 表
-- 同步全部 API Key 元数据到 `api_keys` 表，包含成本限额与关联关系
-- 迁移保存在 Redis 中的 usage 明细（最近 200 条）到 `usage_records` 表，并自动累计费用
-
-如已手动写入 `usage_records`，可使用 `--force-usage` 追加导入。脚本默认只写入一次，避免重复计数。
 
 ### 费用估算
 
@@ -327,13 +264,6 @@ npm run build:web
 
 ### 第五步：启动服务
 
-> 🐘 **使用 PostgreSQL？** 请在启动前执行一次迁移：
->
-> ```bash
-> npm run db:migrate   # 建表与变更
-> npm run db:seed      # （可选）导入演示账户与用量数据
-> ```
-
 ```bash
 # 初始化
 npm run setup # 会随机生成后台账号密码信息，存储在 data/init.json
@@ -363,62 +293,6 @@ curl -fsSL https://pincc.ai/crs-compose.sh -o crs-compose.sh && chmod +x crs-com
 #### 第二步：启动
 
 ```bash
-docker-compose up -d
-```
-
-#### （可选）手动配置 docker-compose
-
-如果你希望手动管理配置文件，可按以下步骤编写 `.env` 和 `docker-compose.yml`：
-
-```bash
-# 拉取镜像（支持 amd64 和 arm64）
-docker pull let5see/claude-relay-service:latest
-
-# 创建 .env 文件用于 docker-compose 的环境变量
-cat > .env <<'EOF'
-# 必填：安全密钥（请修改为随机值）
-JWT_SECRET=your-random-secret-key-at-least-32-chars
-ENCRYPTION_KEY=your-32-character-encryption-key
-
-# 可选：管理员凭据
-ADMIN_USERNAME=cr_admin
-ADMIN_PASSWORD=your-secure-password
-EOF
-
-# 创建 docker-compose.yml 文件
-cat > docker-compose.yml <<'EOF'
-version: '3.8'
-services:
-  claude-relay:
-    image: let5see/claude-relay-service:latest
-    container_name: claude-relay-service
-    restart: unless-stopped
-    ports:
-      - "3000:3000"
-    environment:
-      - JWT_SECRET=${JWT_SECRET}
-      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
-      - REDIS_HOST=redis
-      - ADMIN_USERNAME=${ADMIN_USERNAME:-}
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
-    volumes:
-      - ./logs:/app/logs
-      - ./data:/app/data
-    depends_on:
-      - redis
-
-  redis:
-    image: redis:7-alpine
-    container_name: claude-relay-redis
-    restart: unless-stopped
-    volumes:
-      - redis_data:/data
-
-volumes:
-  redis_data:
-EOF
-
-# 手动方案完成后同样可以启动服务
 docker-compose up -d
 ```
 
@@ -526,7 +400,7 @@ export ANTHROPIC_AUTH_TOKEN="后台创建的API密钥"
 
 ```json
 {
-    "primaryApiKey": "crs"
+  "primaryApiKey": "crs"
 }
 ```
 
@@ -599,24 +473,24 @@ Cherry Studio支持多种AI服务的接入，下面是不同账号类型的详�
 
 ```
 # API地址
-http://你的服务器:3000/claude/
+http://你的服务器:3000/claude
 
 # 模型ID示例
-claude-sonnet-4-20250514  # Claude Sonnet 4
+claude-sonnet-4-5-20250929 # Claude Sonnet 4.5
 claude-opus-4-20250514     # Claude Opus 4
 ```
 
 配置步骤：
 
 - 供应商类型选择"Anthropic"
-- API地址填入：`http://你的服务器:3000/claude/`
+- API地址填入：`http://你的服务器:3000/claude`
 - API Key填入：后台创建的API密钥（cr\_开头）
 
 **2. Gemini账号接入：**
 
 ```
 # API地址
-http://你的服务器:3000/gemini/
+http://你的服务器:3000/gemini
 
 # 模型ID示例
 gemini-2.5-pro             # Gemini 2.5 Pro
@@ -625,14 +499,14 @@ gemini-2.5-pro             # Gemini 2.5 Pro
 配置步骤：
 
 - 供应商类型选择"Gemini"
-- API地址填入：`http://你的服务器:3000/gemini/`
+- API地址填入：`http://你的服务器:3000/gemini`
 - API Key填入：后台创建的API密钥（cr\_开头）
 
 **3. Codex接入：**
 
 ```
 # API地址
-http://你的服务器:3000/openai/
+http://你的服务器:3000/openai
 
 # 模型ID（固定）
 gpt-5                      # Codex使用固定模型ID
@@ -641,9 +515,16 @@ gpt-5                      # Codex使用固定模型ID
 配置步骤：
 
 - 供应商类型选择"Openai-Response"
-- API地址填入：`http://你的服务器:3000/openai/`
+- API地址填入：`http://你的服务器:3000/openai`
 - API Key填入：后台创建的API密钥（cr\_开头）
 - **重要**：Codex只支持Openai-Response标准
+
+**Cherry Studio 地址格式重要说明：**
+
+- ✅ **推荐格式**：`http://你的服务器:3000/claude`（不加结尾 `/`，让 Cherry Studio 自动加上 v1）
+- ✅ **等效格式**：`http://你的服务器:3000/claude/v1/`（手动指定 v1 并加结尾 `/`）
+- 💡 **说明**：这两种格式在 Cherry Studio 中是完全等效的
+- ❌ **错误格式**：`http://你的服务器:3000/claude/`（单独的 `/` 结尾会被 Cherry Studio 忽略 v1 版本）
 
 #### 其他第三方工具接入
 
