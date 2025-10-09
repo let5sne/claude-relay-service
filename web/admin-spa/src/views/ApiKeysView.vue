@@ -94,90 +94,25 @@
                 />
               </div>
 
-              <!-- 状态筛选器 -->
+              <!-- 标签筛选器 -->
               <div class="group relative min-w-[140px]">
-                <div
-                  class="absolute -inset-0.5 rounded-lg bg-gradient-to-r from-emerald-500 to-teal-500 opacity-0 blur transition duration-300 group-hover:opacity-20"
-                ></div>
-                <CustomDropdown
-                  v-model="selectedStatusFilter"
-                  icon="fa-toggle-on"
-                  icon-color="text-emerald-500"
-                  :options="statusOptions"
-                  placeholder="所有状态"
-                  @change="currentPage = 1"
-                />
-              </div>
-
-              <!-- 分组筛选器（多选） -->
-              <div class="group relative min-w-[180px]">
-                <div
-                  class="absolute -inset-0.5 rounded-lg bg-gradient-to-r from-orange-500 to-red-500 opacity-0 blur transition duration-300 group-hover:opacity-20"
-                ></div>
-                <div class="relative">
-                  <el-select
-                    v-model="selectedGroupFilters"
-                    class="group-filter-select"
-                    clearable
-                    collapse-tags
-                    collapse-tags-tooltip
-                    multiple
-                    placeholder="所有分组"
-                    size="default"
-                    style="width: 100%"
-                    @change="currentPage = 1"
-                  >
-                    <el-option
-                      v-for="group in allGroupOptions"
-                      :key="group.value"
-                      :label="group.label"
-                      :value="group.value"
-                    >
-                      <span class="flex items-center gap-2">
-                        <i :class="group.icon" :style="{ color: group.color }" />
-                        <span>{{ group.label }}</span>
-                      </span>
-                    </el-option>
-                  </el-select>
-                  <span
-                    v-if="selectedGroupFilters.length > 0"
-                    class="absolute -right-2 -top-2 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-orange-500 text-xs text-white shadow-sm"
-                  >
-                    {{ selectedGroupFilters.length }}
-                  </span>
-                </div>
-              </div>
-
-              <!-- 标签筛选器（多选） -->
-              <div class="group relative min-w-[180px]">
                 <div
                   class="absolute -inset-0.5 rounded-lg bg-gradient-to-r from-purple-500 to-pink-500 opacity-0 blur transition duration-300 group-hover:opacity-20"
                 ></div>
                 <div class="relative">
-                  <el-select
-                    v-model="selectedTagFilters"
-                    class="tag-filter-select"
-                    clearable
-                    collapse-tags
-                    collapse-tags-tooltip
-                    multiple
+                  <CustomDropdown
+                    v-model="selectedTagFilter"
+                    icon="fa-tags"
+                    icon-color="text-purple-500"
+                    :options="tagOptions"
                     placeholder="所有标签"
-                    size="default"
-                    style="width: 100%"
                     @change="currentPage = 1"
-                  >
-                    <el-option v-for="tag in availableTags" :key="tag" :label="tag" :value="tag">
-                      <span class="flex items-center gap-2">
-                        <i class="fas fa-tag" style="color: #a855f7" />
-                        <span>{{ tag }}</span>
-                      </span>
-                    </el-option>
-                  </el-select>
+                  />
                   <span
-                    v-if="selectedTagFilters.length > 0"
+                    v-if="selectedTagFilter"
                     class="absolute -right-2 -top-2 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-purple-500 text-xs text-white shadow-sm"
                   >
-                    {{ selectedTagFilters.length }}
+                    {{ selectedTagCount }}
                   </span>
                 </div>
               </div>
@@ -659,14 +594,46 @@
                             variant="compact"
                           />
 
-                          <!-- 总费用限制进度条 -->
-                          <LimitProgressBar
-                            v-if="key.totalCostLimit > 0"
-                            :current="key.totalCost || 0"
-                            label="总费用"
-                            :limit="key.totalCostLimit"
-                            type="total"
-                          />
+                          <!-- 时间窗口费用限制（无每日和总费用限制时展示） -->
+                          <div
+                            v-else-if="
+                              key.rateLimitWindow > 0 &&
+                              key.rateLimitCost > 0 &&
+                              (!key.dailyCostLimit || key.dailyCostLimit === 0) &&
+                              (!key.totalCostLimit || key.totalCostLimit === 0)
+                            "
+                            class="space-y-1.5"
+                          >
+                            <!-- 费用进度条 -->
+                            <LimitProgressBar
+                              :current="key.currentWindowCost || 0"
+                              label="窗口费用"
+                              :limit="key.rateLimitCost"
+                              type="window"
+                              variant="compact"
+                            />
+                            <!-- 重置倒计时 -->
+                            <div class="flex items-center justify-between text-[10px]">
+                              <div class="flex items-center gap-1 text-sky-600 dark:text-sky-300">
+                                <i class="fas fa-clock text-[10px]" />
+                                <span class="font-medium">{{ key.rateLimitWindow }}分钟窗口</span>
+                              </div>
+                              <span
+                                class="font-bold"
+                                :class="
+                                  key.windowRemainingSeconds > 0
+                                    ? 'text-sky-700 dark:text-sky-300'
+                                    : 'text-gray-400 dark:text-gray-500'
+                                "
+                              >
+                                {{
+                                  key.windowRemainingSeconds > 0
+                                    ? formatWindowTime(key.windowRemainingSeconds)
+                                    : '未激活'
+                                }}
+                              </span>
+                            </div>
+                          </div>
 
                           <!-- 如果没有任何限制 -->
                           <div
@@ -1295,14 +1262,46 @@
                     variant="compact"
                   />
 
-                  <!-- 总费用限制 -->
-                  <LimitProgressBar
-                    v-if="key.totalCostLimit > 0"
-                    :current="key.totalCost || 0"
-                    label="总费用"
-                    :limit="key.totalCostLimit"
-                    type="total"
-                  />
+                  <!-- 时间窗口费用限制（无每日和总费用限制时展示） -->
+                  <div
+                    v-else-if="
+                      key.rateLimitWindow > 0 &&
+                      key.rateLimitCost > 0 &&
+                      (!key.dailyCostLimit || key.dailyCostLimit === 0) &&
+                      (!key.totalCostLimit || key.totalCostLimit === 0)
+                    "
+                    class="space-y-2"
+                  >
+                    <!-- 费用进度条 -->
+                    <LimitProgressBar
+                      :current="key.currentWindowCost || 0"
+                      label="窗口费用"
+                      :limit="key.rateLimitCost"
+                      type="window"
+                      variant="compact"
+                    />
+                    <!-- 重置倒计时 -->
+                    <div class="flex items-center justify-between text-xs">
+                      <div class="flex items-center gap-1.5 text-sky-600 dark:text-sky-300">
+                        <i class="fas fa-clock text-xs" />
+                        <span class="font-medium">{{ key.rateLimitWindow }}分钟窗口</span>
+                      </div>
+                      <span
+                        class="font-bold"
+                        :class="
+                          key.windowRemainingSeconds > 0
+                            ? 'text-sky-700 dark:text-sky-300'
+                            : 'text-gray-400 dark:text-gray-500'
+                        "
+                      >
+                        {{
+                          key.windowRemainingSeconds > 0
+                            ? formatWindowTime(key.windowRemainingSeconds)
+                            : '未激活'
+                        }}
+                      </span>
+                    </div>
+                  </div>
 
                   <!-- 无限制显示 -->
                   <div
@@ -1931,54 +1930,8 @@ const expiryEditModalRef = ref(null)
 const showUsageDetailModal = ref(false)
 const selectedApiKeyForDetail = ref(null)
 
-// 状态筛选相关
-const selectedStatusFilter = ref('')
-const statusOptions = computed(() => [
-  { value: '', label: '所有状态', icon: 'fa-list' },
-  { value: 'active', label: '活跃', icon: 'fa-check-circle' },
-  { value: 'inactive', label: '禁用', icon: 'fa-times-circle' }
-])
-
-// 分组筛选相关（多选）
-const selectedGroupFilters = ref([])
-const allGroupOptions = computed(() => {
-  const options = []
-
-  // 添加 Claude 分组
-  accounts.value.claudeGroups.forEach((group) => {
-    options.push({
-      value: `claude:group:${group.id}`,
-      label: `Claude - ${group.name}`,
-      icon: 'fas fa-brain',
-      color: '#6366f1'
-    })
-  })
-
-  // 添加 Gemini 分组
-  accounts.value.geminiGroups.forEach((group) => {
-    options.push({
-      value: `gemini:group:${group.id}`,
-      label: `Gemini - ${group.name}`,
-      icon: 'fas fa-robot',
-      color: '#eab308'
-    })
-  })
-
-  // 添加 OpenAI 分组
-  accounts.value.openaiGroups.forEach((group) => {
-    options.push({
-      value: `openai:group:${group.id}`,
-      label: `OpenAI - ${group.name}`,
-      icon: 'fab fa-openai',
-      color: '#6b7280'
-    })
-  })
-
-  return options
-})
-
-// 标签相关（多选）
-const selectedTagFilters = ref([])
+// 标签相关
+const selectedTagFilter = ref('')
 const availableTags = ref([])
 
 // 搜索相关
@@ -1988,6 +1941,20 @@ const searchModeOptions = computed(() => [
   { value: 'apiKey', label: '按Key名称', icon: 'fa-key' },
   { value: 'bindingAccount', label: '按所属账号', icon: 'fa-id-badge' }
 ])
+
+const tagOptions = computed(() => {
+  const options = [{ value: '', label: '所有标签', icon: 'fa-asterisk' }]
+  availableTags.value.forEach((tag) => {
+    options.push({ value: tag, label: tag, icon: 'fa-tag' })
+  })
+  return options
+})
+
+const selectedTagCount = computed(() => {
+  if (!selectedTagFilter.value) return 0
+  return apiKeys.value.filter((key) => key.tags && key.tags.includes(selectedTagFilter.value))
+    .length
+})
 
 // 分页相关
 const currentPage = ref(1)
@@ -2079,45 +2046,12 @@ const getBindingDisplayStrings = (key) => {
 
 // 计算排序后的API Keys
 const sortedApiKeys = computed(() => {
-  // 先进行状态筛选
+  // 先进行标签筛选
   let filteredKeys = apiKeys.value
-  if (selectedStatusFilter.value) {
-    if (selectedStatusFilter.value === 'active') {
-      filteredKeys = filteredKeys.filter((key) => key.isActive)
-    } else if (selectedStatusFilter.value === 'inactive') {
-      filteredKeys = filteredKeys.filter((key) => !key.isActive)
-    }
-  }
-
-  // 然后进行分组筛选（多选）
-  if (selectedGroupFilters.value.length > 0) {
-    filteredKeys = filteredKeys.filter((key) => {
-      return selectedGroupFilters.value.some((filterValue) => {
-        const [platform, , groupId] = filterValue.split(':')
-        const groupIdWithPrefix = `group:${groupId}`
-
-        if (platform === 'claude') {
-          return (
-            key.claudeAccountId === groupIdWithPrefix ||
-            key.claudeConsoleAccountId === groupIdWithPrefix
-          )
-        } else if (platform === 'gemini') {
-          return key.geminiAccountId === groupIdWithPrefix
-        } else if (platform === 'openai') {
-          return key.openaiAccountId === groupIdWithPrefix
-        }
-        return false
-      })
-    })
-  }
-
-  // 然后进行标签筛选（多选）
-  if (selectedTagFilters.value.length > 0) {
-    filteredKeys = filteredKeys.filter((key) => {
-      if (!key.tags || key.tags.length === 0) return false
-      // API Key 必须包含所有选中的标签才显示（AND 逻辑）
-      return selectedTagFilters.value.every((selectedTag) => key.tags.includes(selectedTag))
-    })
+  if (selectedTagFilter.value) {
+    filteredKeys = apiKeys.value.filter(
+      (key) => key.tags && key.tags.includes(selectedTagFilter.value)
+    )
   }
 
   // 然后进行搜索过滤
@@ -3580,6 +3514,23 @@ const formatDate = (dateString) => {
     .replace(/\//g, '-')
 }
 
+// 格式化时间窗口倒计时
+const formatWindowTime = (seconds) => {
+  if (seconds === null || seconds === undefined) return '--:--'
+
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  const secs = seconds % 60
+
+  if (hours > 0) {
+    return `${hours}h${minutes}m`
+  } else if (minutes > 0) {
+    return `${minutes}m${secs}s`
+  } else {
+    return `${secs}s`
+  }
+}
+
 // 获取每日费用进度 - 已移到 LimitProgressBar 组件中
 // const getDailyCostProgress = (key) => {
 //   if (!key.dailyCostLimit || key.dailyCostLimit === 0) return 0
@@ -3959,15 +3910,12 @@ const exportToExcel = () => {
 
 // 监听筛选条件变化，重置页码和选中状态
 // 监听筛选条件变化（不包括搜索），清空选中状态
-watch(
-  [selectedTagFilters, selectedStatusFilter, selectedGroupFilters, apiKeyStatsTimeRange],
-  () => {
-    currentPage.value = 1
-    // 清空选中状态
-    selectedApiKeys.value = []
-    updateSelectAllState()
-  }
-)
+watch([selectedTagFilter, apiKeyStatsTimeRange], () => {
+  currentPage.value = 1
+  // 清空选中状态
+  selectedApiKeys.value = []
+  updateSelectAllState()
+})
 
 // 监听搜索关键词变化，只重置分页，保持选中状态
 watch(searchKeyword, () => {
@@ -4129,55 +4077,5 @@ onMounted(async () => {
 }
 .custom-date-range-picker :deep(.el-range-separator) {
   @apply mx-2 text-gray-500;
-}
-
-/* 分组筛选器样式 */
-.group-filter-select :deep(.el-select__wrapper) {
-  @apply h-[40px] rounded-lg border border-gray-200 bg-white shadow-sm transition-all duration-200 hover:border-gray-300 hover:shadow-md dark:border-gray-600 dark:bg-gray-800;
-}
-
-.group-filter-select :deep(.el-select__placeholder) {
-  @apply text-sm font-medium text-gray-500 dark:text-gray-400;
-}
-
-.group-filter-select :deep(.el-select__input) {
-  @apply text-sm font-medium text-gray-700 dark:text-gray-200;
-}
-
-.group-filter-select :deep(.el-select__tags) {
-  @apply flex items-center gap-1;
-}
-
-.group-filter-select :deep(.el-tag) {
-  @apply rounded-md bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300;
-}
-
-.group-filter-select :deep(.el-tag__close) {
-  @apply text-orange-600 hover:bg-orange-200 dark:text-orange-400 dark:hover:bg-orange-800;
-}
-
-/* 标签筛选器样式 */
-.tag-filter-select :deep(.el-select__wrapper) {
-  @apply h-[40px] rounded-lg border border-gray-200 bg-white shadow-sm transition-all duration-200 hover:border-gray-300 hover:shadow-md dark:border-gray-600 dark:bg-gray-800;
-}
-
-.tag-filter-select :deep(.el-select__placeholder) {
-  @apply text-sm font-medium text-gray-500 dark:text-gray-400;
-}
-
-.tag-filter-select :deep(.el-select__input) {
-  @apply text-sm font-medium text-gray-700 dark:text-gray-200;
-}
-
-.tag-filter-select :deep(.el-select__tags) {
-  @apply flex items-center gap-1;
-}
-
-.tag-filter-select :deep(.el-tag) {
-  @apply rounded-md bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300;
-}
-
-.tag-filter-select :deep(.el-tag__close) {
-  @apply text-purple-600 hover:bg-purple-200 dark:text-purple-400 dark:hover:bg-purple-800;
 }
 </style>
