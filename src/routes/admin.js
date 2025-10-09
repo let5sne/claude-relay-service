@@ -5,6 +5,7 @@ const claudeConsoleAccountService = require('../services/claudeConsoleAccountSer
 const bedrockAccountService = require('../services/bedrockAccountService')
 const ccrAccountService = require('../services/ccrAccountService')
 const geminiAccountService = require('../services/geminiAccountService')
+const droidAccountService = require('../services/droidAccountService')
 const openaiAccountService = require('../services/openaiAccountService')
 const openaiResponsesAccountService = require('../services/openaiResponsesAccountService')
 const azureOpenaiAccountService = require('../services/azureOpenaiAccountService')
@@ -16,6 +17,11 @@ const costTrackingService = require('../services/costTrackingService')
 const { authenticateAdmin } = require('../middleware/auth')
 const logger = require('../utils/logger')
 const oauthHelper = require('../utils/oauthHelper')
+const {
+  startDeviceAuthorization,
+  pollDeviceAuthorization,
+  WorkOSDeviceAuthError
+} = require('../utils/workosOAuthHelper')
 const CostCalculator = require('../utils/costCalculator')
 const pricingService = require('../services/pricingService')
 const claudeCodeHeadersService = require('../services/claudeCodeHeadersService')
@@ -8667,174 +8673,214 @@ router.post('/openai-responses-accounts/:id/reset-usage', authenticateAdmin, asy
   }
 })
 
-// ============================================================================
-// 成本追踪相关API
-// ============================================================================
+// 🤖 Droid 账户管理
 
-const costInferenceService = require('../services/costInferenceService')
-
-// 获取账户成本配置
-router.get('/accounts/:accountId/cost-profile', async (req, res) => {
+// 生成 Droid OAuth 授权链接
+router.post('/droid-accounts/generate-auth-url', authenticateAdmin, async (req, res) => {
   try {
-    const { accountId } = req.params
-    const profile = await costTrackingService.getAccountCostProfile(accountId)
+    const { proxy } = req.body || {}
+    const deviceAuth = await startDeviceAuthorization(proxy || null)
 
-    res.json({
+    const sessionId = crypto.randomUUID()
+    const expiresAt = new Date(Date.now() + deviceAuth.expiresIn * 1000).toISOString()
+
+    await redis.setOAuthSession(sessionId, {
+      deviceCode: deviceAuth.deviceCode,
+      userCode: deviceAuth.userCode,
+      verificationUri: deviceAuth.verificationUri,
+      verificationUriComplete: deviceAuth.verificationUriComplete,
+      interval: deviceAuth.interval,
+      proxy: proxy || null,
+      createdAt: new Date().toISOString(),
+      expiresAt
+    })
+
+    logger.success('🤖 生成 Droid 设备码授权信息成功', { sessionId })
+    return res.json({
       success: true,
-      profile
+      data: {
+        sessionId,
+        userCode: deviceAuth.userCode,
+        verificationUri: deviceAuth.verificationUri,
+        verificationUriComplete: deviceAuth.verificationUriComplete,
+        expiresIn: deviceAuth.expiresIn,
+        interval: deviceAuth.interval,
+        instructions: [
+          '1. 使用下方验证码进入授权页面并确认访问权限。',
+          '2. 在授权页面登录 Factory / Droid 账户并点击允许。',
+          '3. 回到此处点击“完成授权”完成凭证获取。'
+        ]
+      }
     })
   } catch (error) {
-    logger.error('Failed to get cost profile:', error)
-    res.status(500).json({
-      success: false,
-      error: error.message
-    })
+    const message =
+      error instanceof WorkOSDeviceAuthError ? error.message : error.message || '未知错误'
+    logger.error('❌ 生成 Droid 设备码授权失败:', message)
+    return res.status(500).json({ error: 'Failed to start Droid device authorization', message })
   }
 })
 
-// 更新账户成本配置
-router.put('/accounts/:accountId/cost-profile', async (req, res) => {
+// 交换 Droid 授权码
+router.post('/droid-accounts/exchange-code', authenticateAdmin, async (req, res) => {
+  const { sessionId, proxy } = req.body || {}
   try {
-    const { accountId } = req.params
-    const profile = req.body
+    if (!sessionId) {
+      return res.status(400).json({ error: 'Session ID is required' })
+    }
 
-    const result = await costTrackingService.upsertAccountCostProfile({
-      accountId,
-      ...profile
-    })
+    const oauthSession = await redis.getOAuthSession(sessionId)
+    if (!oauthSession) {
+      return res.status(400).json({ error: 'Invalid or expired OAuth session' })
+    }
 
-    res.json({
-      success: true,
-      profile: result
-    })
+    if (oauthSession.expiresAt && new Date() > new Date(oauthSession.expiresAt)) {
+      await redis.deleteOAuthSession(sessionId)
+      return res
+        .status(400)
+        .json({ error: 'OAuth session has expired, please generate a new authorization URL' })
+    }
+
+    if (!oauthSession.deviceCode) {
+      await redis.deleteOAuthSession(sessionId)
+      return res.status(400).json({ error: 'OAuth session missing device code, please retry' })
+    }
+
+    const proxyConfig = proxy || oauthSession.proxy || null
+    const tokens = await pollDeviceAuthorization(oauthSession.deviceCode, proxyConfig)
+
+    await redis.deleteOAuthSession(sessionId)
+
+    logger.success('🤖 成功获取 Droid 访问令牌', { sessionId })
+    return res.json({ success: true, data: { tokens } })
   } catch (error) {
-    logger.error('Failed to update cost profile:', error)
-    res.status(500).json({
-      success: false,
-      error: error.message
-    })
-  }
-})
+    if (error instanceof WorkOSDeviceAuthError) {
+      if (error.code === 'authorization_pending' || error.code === 'slow_down') {
+        const oauthSession = await redis.getOAuthSession(sessionId)
+        const expiresAt = oauthSession?.expiresAt ? new Date(oauthSession.expiresAt) : null
+        const remainingSeconds =
+          expiresAt instanceof Date && !Number.isNaN(expiresAt.getTime())
+            ? Math.max(0, Math.floor((expiresAt.getTime() - Date.now()) / 1000))
+            : null
 
-// 推导计价参数
-router.post('/accounts/:accountId/infer-pricing', async (req, res) => {
-  try {
-    const { accountId } = req.params
-    const result = await costInferenceService.inferPricingFromBills(accountId)
+        return res.json({
+          success: false,
+          pending: true,
+          error: error.code,
+          message: error.message,
+          retryAfter: error.retryAfter || Number(oauthSession?.interval) || 5,
+          expiresIn: remainingSeconds
+        })
+      }
 
-    res.json(result)
-  } catch (error) {
-    logger.error('Failed to infer pricing:', error)
-    res.status(500).json({
-      success: false,
-      error: error.message
-    })
-  }
-})
+      if (error.code === 'expired_token') {
+        await redis.deleteOAuthSession(sessionId)
+        return res.status(400).json({
+          error: 'Device code expired',
+          message: '授权已过期，请重新生成设备码并再次授权'
+        })
+      }
 
-// 验证成本准确性
-router.post('/accounts/:accountId/validate-costs', async (req, res) => {
-  try {
-    const { accountId } = req.params
-    const { billingPeriod } = req.body
-
-    if (!billingPeriod) {
-      return res.status(400).json({
-        success: false,
-        error: 'billingPeriod is required'
+      logger.error('❌ Droid 授权失败:', error.message)
+      return res.status(500).json({
+        error: 'Failed to exchange Droid authorization code',
+        message: error.message,
+        errorCode: error.code
       })
     }
 
-    const result = await costInferenceService.validateCostAccuracy(accountId, billingPeriod)
-
-    // 调试日志：查看返回的数据
-    logger.info('Cost validation result:', { accountId, billingPeriod, result })
-
-    res.json(result)
-  } catch (error) {
-    logger.error('Failed to validate costs:', error)
-    res.status(500).json({
-      success: false,
-      error: error.message
+    logger.error('❌ 交换 Droid 授权码失败:', error)
+    return res.status(500).json({
+      error: 'Failed to exchange Droid authorization code',
+      message: error.message
     })
   }
 })
 
-// 录入账单数据
-router.post('/accounts/:accountId/bills', async (req, res) => {
+// 获取所有 Droid 账户
+router.get('/droid-accounts', authenticateAdmin, async (req, res) => {
   try {
-    const { accountId } = req.params
-    const billData = req.body
+    const accounts = await droidAccountService.getAllAccounts()
 
-    const bill = await costTrackingService.createAccountBill({
-      id: uuidv4(),
-      accountId,
-      ...billData
-    })
-
-    res.json({
-      success: true,
-      bill
-    })
-  } catch (error) {
-    logger.error('Failed to create bill:', error)
-    res.status(500).json({
-      success: false,
-      error: error.message
-    })
-  }
-})
-
-// 获取账单列表
-router.get('/accounts/:accountId/bills', async (req, res) => {
-  try {
-    const { accountId } = req.params
-    const { limit, offset } = req.query
-
-    const bills = await costTrackingService.listAccountBills(accountId, {
-      limit: limit ? parseInt(limit) : 20,
-      offset: offset ? parseInt(offset) : 0
-    })
-
-    res.json({
-      success: true,
-      bills
-    })
-  } catch (error) {
-    logger.error('Failed to list bills:', error)
-    res.status(500).json({
-      success: false,
-      error: error.message
-    })
-  }
-})
-
-// 获取成本对比报告
-router.get('/accounts/:accountId/cost-comparison', async (req, res) => {
-  try {
-    const { accountId } = req.params
-    const { startDate, endDate } = req.query
-
-    if (!startDate || !endDate) {
-      return res.status(400).json({
-        success: false,
-        error: 'startDate and endDate are required'
+    // 添加使用统计
+    const accountsWithStats = await Promise.all(
+      accounts.map(async (account) => {
+        try {
+          const usageStats = await redis.getAccountUsageStats(account.id, 'droid')
+          return {
+            ...account,
+            schedulable: account.schedulable === 'true',
+            usage: {
+              daily: usageStats.daily,
+              total: usageStats.total,
+              averages: usageStats.averages
+            }
+          }
+        } catch (error) {
+          logger.warn(`Failed to get stats for Droid account ${account.id}:`, error.message)
+          return {
+            ...account,
+            usage: {
+              daily: { tokens: 0, requests: 0 },
+              total: { tokens: 0, requests: 0 },
+              averages: { rpm: 0, tpm: 0 }
+            }
+          }
+        }
       })
-    }
-
-    const report = await costInferenceService.generateCostComparisonReport(
-      accountId,
-      startDate,
-      endDate
     )
 
-    res.json(report)
+    return res.json({ success: true, data: accountsWithStats })
   } catch (error) {
-    logger.error('Failed to generate cost comparison:', error)
-    res.status(500).json({
-      success: false,
-      error: error.message
-    })
+    logger.error('Failed to get Droid accounts:', error)
+    return res.status(500).json({ error: 'Failed to get Droid accounts', message: error.message })
+  }
+})
+
+// 创建 Droid 账户
+router.post('/droid-accounts', authenticateAdmin, async (req, res) => {
+  try {
+    const account = await droidAccountService.createAccount(req.body)
+    logger.success(`Created Droid account: ${account.name} (${account.id})`)
+    return res.json({ success: true, data: account })
+  } catch (error) {
+    logger.error('Failed to create Droid account:', error)
+    return res.status(500).json({ error: 'Failed to create Droid account', message: error.message })
+  }
+})
+
+// 更新 Droid 账户
+router.put('/droid-accounts/:id', authenticateAdmin, async (req, res) => {
+  try {
+    const { id } = req.params
+    const account = await droidAccountService.updateAccount(id, req.body)
+    return res.json({ success: true, data: account })
+  } catch (error) {
+    logger.error(`Failed to update Droid account ${req.params.id}:`, error)
+    return res.status(500).json({ error: 'Failed to update Droid account', message: error.message })
+  }
+})
+
+// 删除 Droid 账户
+router.delete('/droid-accounts/:id', authenticateAdmin, async (req, res) => {
+  try {
+    const { id } = req.params
+    await droidAccountService.deleteAccount(id)
+    return res.json({ success: true, message: 'Droid account deleted successfully' })
+  } catch (error) {
+    logger.error(`Failed to delete Droid account ${req.params.id}:`, error)
+    return res.status(500).json({ error: 'Failed to delete Droid account', message: error.message })
+  }
+})
+
+// 刷新 Droid 账户 token
+router.post('/droid-accounts/:id/refresh-token', authenticateAdmin, async (req, res) => {
+  try {
+    const { id } = req.params
+    const result = await droidAccountService.refreshAccessToken(id)
+    return res.json({ success: true, data: result })
+  } catch (error) {
+    logger.error(`Failed to refresh Droid account token ${req.params.id}:`, error)
+    return res.status(500).json({ error: 'Failed to refresh token', message: error.message })
   }
 })
 
