@@ -4251,7 +4251,14 @@ router.get('/accounts/:accountId/usage-history', authenticateAdmin, async (req, 
     const { accountId } = req.params
     const { platform = 'claude', days = 30 } = req.query
 
-    const allowedPlatforms = ['claude', 'claude-console', 'openai', 'openai-responses', 'gemini']
+    const allowedPlatforms = [
+      'claude',
+      'claude-console',
+      'openai',
+      'openai-responses',
+      'gemini',
+      'droid'
+    ]
     if (!allowedPlatforms.includes(platform)) {
       return res.status(400).json({
         success: false,
@@ -4261,7 +4268,8 @@ router.get('/accounts/:accountId/usage-history', authenticateAdmin, async (req, 
 
     const accountTypeMap = {
       openai: 'openai',
-      'openai-responses': 'openai-responses'
+      'openai-responses': 'openai-responses',
+      droid: 'droid'
     }
 
     const fallbackModelMap = {
@@ -4269,7 +4277,8 @@ router.get('/accounts/:accountId/usage-history', authenticateAdmin, async (req, 
       'claude-console': 'claude-3-5-sonnet-20241022',
       openai: 'gpt-4o-mini-2024-07-18',
       'openai-responses': 'gpt-4o-mini-2024-07-18',
-      gemini: 'gemini-1.5-flash'
+      gemini: 'gemini-1.5-flash',
+      droid: 'unknown'
     }
 
     // 获取账户信息以获取创建时间
@@ -4292,6 +4301,9 @@ router.get('/accounts/:accountId/usage-history', authenticateAdmin, async (req, 
           break
         case 'gemini':
           accountData = await geminiAccountService.getAccount(accountId)
+          break
+        case 'droid':
+          accountData = await droidAccountService.getAccount(accountId)
           break
       }
 
