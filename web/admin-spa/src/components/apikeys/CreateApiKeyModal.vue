@@ -619,6 +619,15 @@
                 />
                 <span class="text-sm text-gray-700 dark:text-gray-300">仅 OpenAI</span>
               </label>
+              <label class="flex cursor-pointer items-center">
+                <input
+                  v-model="form.permissions"
+                  class="mr-2 text-blue-600 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
+                  type="radio"
+                  value="droid"
+                />
+                <span class="text-sm text-gray-700 dark:text-gray-300">仅 Droid</span>
+              </label>
             </div>
             <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
               控制此 API Key 可以访问哪些服务
@@ -656,7 +665,7 @@
                   v-model="form.claudeAccountId"
                   :accounts="localAccounts.claude"
                   default-option-text="使用共享账号池"
-                  :disabled="form.permissions === 'gemini' || form.permissions === 'openai'"
+                  :disabled="form.permissions !== 'all' && form.permissions !== 'claude'"
                   :groups="localAccounts.claudeGroups"
                   placeholder="请选择Claude账号"
                   platform="claude"
@@ -670,7 +679,7 @@
                   v-model="form.geminiAccountId"
                   :accounts="localAccounts.gemini"
                   default-option-text="使用共享账号池"
-                  :disabled="form.permissions === 'claude' || form.permissions === 'openai'"
+                  :disabled="form.permissions !== 'all' && form.permissions !== 'gemini'"
                   :groups="localAccounts.geminiGroups"
                   placeholder="请选择Gemini账号"
                   platform="gemini"
@@ -684,7 +693,7 @@
                   v-model="form.openaiAccountId"
                   :accounts="localAccounts.openai"
                   default-option-text="使用共享账号池"
-                  :disabled="form.permissions === 'claude' || form.permissions === 'gemini'"
+                  :disabled="form.permissions !== 'all' && form.permissions !== 'openai'"
                   :groups="localAccounts.openaiGroups"
                   placeholder="请选择OpenAI账号"
                   platform="openai"
@@ -698,10 +707,24 @@
                   v-model="form.bedrockAccountId"
                   :accounts="localAccounts.bedrock"
                   default-option-text="使用共享账号池"
-                  :disabled="form.permissions === 'gemini' || form.permissions === 'openai'"
+                  :disabled="form.permissions !== 'all' && form.permissions !== 'openai'"
                   :groups="[]"
                   placeholder="请选择Bedrock账号"
                   platform="bedrock"
+                />
+              </div>
+              <div>
+                <label class="mb-1 block text-sm font-medium text-gray-600 dark:text-gray-400"
+                  >Droid 专属账号</label
+                >
+                <AccountSelector
+                  v-model="form.droidAccountId"
+                  :accounts="localAccounts.droid"
+                  default-option-text="使用共享账号池"
+                  :disabled="form.permissions !== 'all' && form.permissions !== 'droid'"
+                  :groups="localAccounts.droidGroups"
+                  placeholder="请选择Droid账号"
+                  platform="droid"
                 />
               </div>
             </div>
@@ -878,7 +901,17 @@ import AccountSelector from '@/components/common/AccountSelector.vue'
 const props = defineProps({
   accounts: {
     type: Object,
-    default: () => ({ claude: [], gemini: [] })
+    default: () => ({
+      claude: [],
+      gemini: [],
+      openai: [],
+      bedrock: [],
+      droid: [],
+      claudeGroups: [],
+      geminiGroups: [],
+      openaiGroups: [],
+      droidGroups: []
+    })
   }
 })
 
@@ -892,10 +925,12 @@ const localAccounts = ref({
   claude: [],
   gemini: [],
   openai: [],
-  bedrock: [], // 添加 Bedrock 账号列表
+  bedrock: [],
+  droid: [],
   claudeGroups: [],
   geminiGroups: [],
-  openaiGroups: []
+  openaiGroups: [],
+  droidGroups: []
 })
 
 // 表单验证状态
@@ -938,7 +973,8 @@ const form = reactive({
   claudeAccountId: '',
   geminiAccountId: '',
   openaiAccountId: '',
-  bedrockAccountId: '', // 添加 Bedrock 账号ID
+  bedrockAccountId: '',
+  droidAccountId: '',
   enableModelRestriction: false,
   restrictedModels: [],
   modelInput: '',
@@ -976,10 +1012,15 @@ onMounted(async () => {
       claude: props.accounts.claude || [],
       gemini: props.accounts.gemini || [],
       openai: openaiAccounts,
-      bedrock: props.accounts.bedrock || [], // 添加 Bedrock 账号
+      bedrock: props.accounts.bedrock || [],
+      droid: (props.accounts.droid || []).map((account) => ({
+        ...account,
+        platform: 'droid'
+      })),
       claudeGroups: props.accounts.claudeGroups || [],
       geminiGroups: props.accounts.geminiGroups || [],
-      openaiGroups: props.accounts.openaiGroups || []
+      openaiGroups: props.accounts.openaiGroups || [],
+      droidGroups: props.accounts.droidGroups || []
     }
   }
 
@@ -998,6 +1039,7 @@ const refreshAccounts = async () => {
       openaiData,
       openaiResponsesData,
       bedrockData,
+      droidData,
       groupsData
     ] = await Promise.all([
       apiClient.get('/admin/claude-accounts'),
@@ -1005,7 +1047,8 @@ const refreshAccounts = async () => {
       apiClient.get('/admin/gemini-accounts'),
       apiClient.get('/admin/openai-accounts'),
       apiClient.get('/admin/openai-responses-accounts'), // 获取 OpenAI-Responses 账号
-      apiClient.get('/admin/bedrock-accounts'), // 添加 Bedrock 账号获取
+      apiClient.get('/admin/bedrock-accounts'),
+      apiClient.get('/admin/droid-accounts'),
       apiClient.get('/admin/account-groups')
     ])
 
@@ -1073,12 +1116,21 @@ const refreshAccounts = async () => {
       }))
     }
 
+    if (droidData.success) {
+      localAccounts.value.droid = (droidData.data || []).map((account) => ({
+        ...account,
+        platform: 'droid',
+        isDedicated: account.accountType === 'dedicated'
+      }))
+    }
+
     // 处理分组数据
     if (groupsData.success) {
       const allGroups = groupsData.data || []
       localAccounts.value.claudeGroups = allGroups.filter((g) => g.platform === 'claude')
       localAccounts.value.geminiGroups = allGroups.filter((g) => g.platform === 'gemini')
       localAccounts.value.openaiGroups = allGroups.filter((g) => g.platform === 'openai')
+      localAccounts.value.droidGroups = allGroups.filter((g) => g.platform === 'droid')
     }
 
     showToast('账号列表已刷新', 'success')
@@ -1348,6 +1400,9 @@ const createApiKey = async () => {
     // Bedrock账户绑定
     if (form.bedrockAccountId) {
       baseData.bedrockAccountId = form.bedrockAccountId
+    }
+    if (form.droidAccountId) {
+      baseData.droidAccountId = form.droidAccountId
     }
 
     if (form.createType === 'single') {

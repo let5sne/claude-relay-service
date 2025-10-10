@@ -28,7 +28,8 @@ class ApiKeyService {
       openaiAccountId = null,
       azureOpenaiAccountId = null,
       bedrockAccountId = null, // 添加 Bedrock 账号ID支持
-      permissions = 'all', // 'claude', 'gemini', 'openai', 'all'
+      droidAccountId = null,
+      permissions = 'all', // 可选值：'claude'、'gemini'、'openai'、'droid' 或 'all'
       isActive = true,
       concurrencyLimit = 0,
       rateLimitWindow = null,
@@ -70,6 +71,7 @@ class ApiKeyService {
       openaiAccountId: openaiAccountId || '',
       azureOpenaiAccountId: azureOpenaiAccountId || '',
       bedrockAccountId: bedrockAccountId || '', // 添加 Bedrock 账号ID
+      droidAccountId: droidAccountId || '',
       permissions: permissions || 'all',
       enableModelRestriction: String(enableModelRestriction),
       restrictedModels: JSON.stringify(restrictedModels || []),
@@ -134,6 +136,7 @@ class ApiKeyService {
       openaiAccountId: keyData.openaiAccountId,
       azureOpenaiAccountId: keyData.azureOpenaiAccountId,
       bedrockAccountId: keyData.bedrockAccountId, // 添加 Bedrock 账号ID
+      droidAccountId: keyData.droidAccountId,
       permissions: keyData.permissions,
       enableModelRestriction: keyData.enableModelRestriction === 'true',
       restrictedModels: JSON.parse(keyData.restrictedModels),
@@ -281,6 +284,7 @@ class ApiKeyService {
           openaiAccountId: keyData.openaiAccountId,
           azureOpenaiAccountId: keyData.azureOpenaiAccountId,
           bedrockAccountId: keyData.bedrockAccountId, // 添加 Bedrock 账号ID
+          droidAccountId: keyData.droidAccountId,
           permissions: keyData.permissions || 'all',
           tokenLimit: parseInt(keyData.tokenLimit),
           concurrencyLimit: parseInt(keyData.concurrencyLimit || 0),
@@ -407,6 +411,7 @@ class ApiKeyService {
           openaiAccountId: keyData.openaiAccountId,
           azureOpenaiAccountId: keyData.azureOpenaiAccountId,
           bedrockAccountId: keyData.bedrockAccountId,
+          droidAccountId: keyData.droidAccountId,
           permissions: keyData.permissions || 'all',
           tokenLimit: parseInt(keyData.tokenLimit),
           concurrencyLimit: parseInt(keyData.concurrencyLimit || 0),
@@ -578,6 +583,7 @@ class ApiKeyService {
         'openaiAccountId',
         'azureOpenaiAccountId',
         'bedrockAccountId', // 添加 Bedrock 账号ID
+        'droidAccountId',
         'permissions',
         'expiresAt',
         'activationDays', // 新增：激活后有效天数
@@ -1841,6 +1847,7 @@ class ApiKeyService {
           userId: key.userId,
           userUsername: key.userUsername,
           createdBy: key.createdBy,
+          droidAccountId: key.droidAccountId,
           // Include deletion fields for deleted keys
           isDeleted: key.isDeleted,
           deletedAt: key.deletedAt,
@@ -1884,7 +1891,8 @@ class ApiKeyService {
         createdBy: keyData.createdBy,
         permissions: keyData.permissions,
         dailyCostLimit: parseFloat(keyData.dailyCostLimit || 0),
-        totalCostLimit: parseFloat(keyData.totalCostLimit || 0)
+        totalCostLimit: parseFloat(keyData.totalCostLimit || 0),
+        droidAccountId: keyData.droidAccountId
       }
     } catch (error) {
       logger.error('❌ Failed to get API key by ID:', error)
@@ -2262,6 +2270,7 @@ class ApiKeyService {
         'openai-responses': 'openaiAccountId', // 特殊处理，带 responses: 前缀
         azure_openai: 'azureOpenaiAccountId',
         bedrock: 'bedrockAccountId',
+        droid: 'droidAccountId',
         ccr: null // CCR 账号没有对应的 API Key 字段
       }
 
