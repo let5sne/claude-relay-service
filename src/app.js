@@ -301,6 +301,22 @@ class Application {
       this.app.use('/azure', azureOpenaiRoutes)
       this.app.use('/admin/webhook', webhookRoutes)
 
+      // 🔁 兼容 /webapi 前缀（前端 DEV 构建或历史配置会使用该前缀）
+      this.app.use('/webapi/api', apiRoutes)
+      this.app.use('/webapi/claude', apiRoutes)
+      this.app.use('/webapi/admin', adminRoutes)
+      this.app.use('/webapi/users', userRoutes)
+      this.app.use('/webapi/web', webRoutes)
+      this.app.use('/webapi/apiStats', apiStatsRoutes)
+      this.app.use('/webapi/gemini', standardGeminiRoutes)
+      this.app.use('/webapi/gemini', geminiRoutes)
+      this.app.use('/webapi/openai/gemini', openaiGeminiRoutes)
+      this.app.use('/webapi/openai/claude', openaiClaudeRoutes)
+      this.app.use('/webapi/openai', openaiRoutes)
+      this.app.use('/webapi/droid', droidRoutes)
+      this.app.use('/webapi/azure', azureOpenaiRoutes)
+      this.app.use('/webapi/admin/webhook', webhookRoutes)
+
       // 🏠 根路径重定向到新版管理界面
       this.app.get('/', (req, res) => {
         res.redirect('/admin-next/api-stats')

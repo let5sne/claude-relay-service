@@ -1013,6 +1013,7 @@ export const useDashboardStore = defineStore('dashboard', () => {
     disabledDate,
 
     // 性价比相关方法
+    loadCostEfficiencyData,
     setCostEfficiencyRange,
     setCostEfficiencyPlatform,
     toggleCostEfficiencySort,

@@ -17,11 +17,7 @@ const costTrackingService = require('../services/costTrackingService')
 const { authenticateAdmin } = require('../middleware/auth')
 const logger = require('../utils/logger')
 const oauthHelper = require('../utils/oauthHelper')
-const {
-  startDeviceAuthorization,
-  pollDeviceAuthorization,
-  WorkOSDeviceAuthError
-} = require('../utils/workosOAuthHelper')
+const { startDeviceAuthorization, pollDeviceAuthorization, WorkOSDeviceAuthError } = require('../utils/workosOAuthHelper')
 const CostCalculator = require('../utils/costCalculator')
 const pricingService = require('../services/pricingService')
 const claudeCodeHeadersService = require('../services/claudeCodeHeadersService')
@@ -4278,7 +4274,8 @@ router.get('/accounts/:accountId/usage-history', authenticateAdmin, async (req, 
       openai: 'gpt-4o-mini-2024-07-18',
       'openai-responses': 'gpt-4o-mini-2024-07-18',
       gemini: 'gemini-1.5-flash',
-      droid: 'unknown'
+      // Droid 默认走 Anthropc 计费模型作为回退
+      droid: 'claude-3-5-sonnet-20241022'
     }
 
     // 获取账户信息以获取创建时间
@@ -9020,6 +9017,75 @@ router.post('/droid-accounts/:id/refresh-token', authenticateAdmin, async (req, 
   } catch (error) {
     logger.error(`Failed to refresh Droid account token ${req.params.id}:`, error)
     return res.status(500).json({ error: 'Failed to refresh token', message: error.message })
+  }
+})
+
+// 🤖 Droid 账户管理
+
+// 获取所有 Droid 账户
+router.get('/droid-accounts', authenticateAdmin, async (req, res) => {
+  try {
+    const accounts = await droidAccountService.getAllAccounts()
+    res.json({ success: true, data: accounts })
+  } catch (error) {
+    logger.error('Failed to get Droid accounts:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+// 创建 Droid 账户
+router.post('/droid-accounts', authenticateAdmin, async (req, res) => {
+  try {
+    const account = await droidAccountService.createAccount(req.body || {})
+    logger.success(`Created Droid account: ${account?.name || account?.id}`)
+    return res.json({ success: true, data: account })
+  } catch (error) {
+    logger.error('Failed to create Droid account:', error)
+    return res
+      .status(500)
+      .json({ success: false, error: 'Failed to create Droid account', message: error.message })
+  }
+})
+
+// 更新 Droid 账户
+router.put('/droid-accounts/:id', authenticateAdmin, async (req, res) => {
+  try {
+    const { id } = req.params
+    const updated = await droidAccountService.updateAccount(id, req.body || {})
+    return res.json({ success: true, data: updated })
+  } catch (error) {
+    logger.error(`Failed to update Droid account ${req.params.id}:`, error)
+    return res
+      .status(500)
+      .json({ success: false, error: 'Failed to update Droid account', message: error.message })
+  }
+})
+
+// 删除 Droid 账户
+router.delete('/droid-accounts/:id', authenticateAdmin, async (req, res) => {
+  try {
+    const { id } = req.params
+    await droidAccountService.deleteAccount(id)
+    return res.json({ success: true, message: 'Droid account deleted successfully' })
+  } catch (error) {
+    logger.error(`Failed to delete Droid account ${req.params.id}:`, error)
+    return res
+      .status(500)
+      .json({ success: false, error: 'Failed to delete Droid account', message: error.message })
+  }
+})
+
+// 刷新 Droid 账户 token
+router.post('/droid-accounts/:id/refresh-token', authenticateAdmin, async (req, res) => {
+  try {
+    const { id } = req.params
+    const result = await droidAccountService.refreshAccessToken(id)
+    return res.json({ success: true, data: result })
+  } catch (error) {
+    logger.error(`Failed to refresh Droid account token ${req.params.id}:`, error)
+    return res
+      .status(500)
+      .json({ success: false, error: 'Failed to refresh token', message: error.message })
   }
 })
 
