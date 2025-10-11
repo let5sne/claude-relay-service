@@ -10,6 +10,7 @@ const openaiAccountService = require('../services/openaiAccountService')
 const openaiResponsesAccountService = require('../services/openaiResponsesAccountService')
 const azureOpenaiAccountService = require('../services/azureOpenaiAccountService')
 const accountGroupService = require('../services/accountGroupService')
+const costEfficiencyService = require('../services/costEfficiencyService')
 const redis = require('../models/redis')
 const { authenticateAdmin } = require('../middleware/auth')
 const logger = require('../utils/logger')
@@ -4914,6 +4915,88 @@ router.get('/dashboard', authenticateAdmin, async (req, res) => {
   } catch (error) {
     logger.error('❌ Failed to get dashboard data:', error)
     return res.status(500).json({ error: 'Failed to get dashboard data', message: error.message })
+  }
+})
+
+// 成本效率分析路由
+router.get('/dashboard/cost-efficiency/summary', authenticateAdmin, async (req, res) => {
+  try {
+    const { range, start, end, month, platform, groupId } = req.query
+    const summary = await costEfficiencyService.getCostEfficiencySummary({
+      range,
+      start,
+      end,
+      month,
+      platform,
+      groupId
+    })
+
+    return res.json({
+      success: true,
+      data: summary
+    })
+  } catch (error) {
+    logger.error('❌ Failed to get cost efficiency summary:', error)
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to get cost efficiency summary',
+      message: error.message
+    })
+  }
+})
+
+router.get('/dashboard/cost-efficiency/accounts', authenticateAdmin, async (req, res) => {
+  try {
+    const { range, start, end, month, platform, groupId, limit, offset, sortBy, order } = req.query
+
+    const result = await costEfficiencyService.getCostEfficiencyAccounts({
+      range,
+      start,
+      end,
+      month,
+      platform,
+      groupId,
+      limit,
+      offset,
+      sortBy,
+      order
+    })
+
+    return res.json({
+      success: true,
+      data: result
+    })
+  } catch (error) {
+    logger.error('❌ Failed to get cost efficiency accounts:', error)
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to get cost efficiency accounts',
+      message: error.message
+    })
+  }
+})
+
+router.get('/dashboard/cost-efficiency/trends', authenticateAdmin, async (req, res) => {
+  try {
+    const { range, start, end, month, platform, groupId, interval } = req.query
+    const data = await costEfficiencyService.getCostEfficiencyTrends({
+      range,
+      start,
+      end,
+      month,
+      platform,
+      groupId,
+      interval
+    })
+
+    return res.json({ success: true, data })
+  } catch (error) {
+    logger.error('❌ Failed to get cost efficiency trends:', error)
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to get cost efficiency trends',
+      message: error.message
+    })
   }
 })
 
