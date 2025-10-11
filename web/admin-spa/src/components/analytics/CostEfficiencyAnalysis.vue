@@ -39,7 +39,7 @@
       </div>
 
       <!-- 数据展示 -->
-      <div v-else>
+      <div v-else-if="accounts.length > 0 || summary.totals">
         <!-- 汇总卡片 -->
         <div class="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
           <div
@@ -157,6 +157,23 @@
           </table>
         </div>
       </div>
+
+      <!-- 空状态 -->
+      <div v-else class="flex flex-col items-center justify-center py-12">
+        <div class="mb-4 text-6xl">📊</div>
+        <h3 class="mb-2 text-lg font-semibold text-gray-900 dark:text-gray-100">暂无数据</h3>
+        <p class="mb-4 text-center text-sm text-gray-600 dark:text-gray-400">
+          当前时间范围内没有找到账户使用数据
+        </p>
+        <div class="text-xs text-gray-500 dark:text-gray-500">
+          <p>可能的原因:</p>
+          <ul class="mt-2 list-inside list-disc space-y-1">
+            <li>数据库未启用或未配置</li>
+            <li>选择的时间范围内没有使用记录</li>
+            <li>所有账户都被筛选条件排除</li>
+          </ul>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -184,6 +201,8 @@ const loadData = async () => {
   loading.value = true
   try {
     const params = { ...filters.value }
+    console.log('🔍 Loading cost efficiency data with params:', params)
+
     const [summaryRes, accountsRes] = await Promise.all([
       apiClient.get('/admin/dashboard/cost-efficiency/summary', { params }),
       apiClient.get('/admin/dashboard/cost-efficiency/accounts', {
@@ -191,14 +210,34 @@ const loadData = async () => {
       })
     ])
 
-    if (summaryRes.success) {
+    console.log('📊 Summary response:', summaryRes)
+    console.log('📋 Accounts response:', accountsRes)
+
+    if (summaryRes?.success) {
       summary.value = summaryRes.data || {}
+      console.log('✅ Summary data loaded:', summary.value)
+    } else {
+      console.warn('⚠️ Summary response missing success flag:', summaryRes)
+      summary.value = {}
     }
-    if (accountsRes.success) {
+
+    if (accountsRes?.success) {
       accounts.value = accountsRes.data?.items || []
+      console.log('✅ Accounts data loaded:', accounts.value.length, 'items')
+    } else {
+      console.warn('⚠️ Accounts response missing success flag:', accountsRes)
+      accounts.value = []
+    }
+
+    // 检查数据库是否可用
+    if (summaryRes?.data?.available === false) {
+      showToast('数据库未启用,无法加载统计数据', 'warning')
     }
   } catch (error) {
-    showToast('加载性价比数据失败', 'error')
+    console.error('❌ Failed to load cost efficiency data:', error)
+    showToast('加载性价比数据失败: ' + (error.message || '未知错误'), 'error')
+    summary.value = {}
+    accounts.value = []
   } finally {
     loading.value = false
   }

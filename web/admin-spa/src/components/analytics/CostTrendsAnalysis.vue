@@ -21,9 +21,9 @@
             class="rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800"
             @change="loadData"
           >
-            <option value="hourly">按小时</option>
-            <option value="daily">按天</option>
-            <option value="weekly">按周</option>
+            <option value="hour">按小时</option>
+            <option value="day">按天</option>
+            <option value="week">按周</option>
           </select>
         </div>
       </div>
@@ -31,6 +31,18 @@
       <!-- 加载状态 -->
       <div v-if="loading" class="flex h-64 items-center justify-center">
         <div class="loading-spinner h-12 w-12 border-4 border-indigo-500" />
+      </div>
+
+      <!-- 空状态 -->
+      <div
+        v-else-if="trends.length === 0"
+        class="flex h-64 flex-col items-center justify-center text-gray-500"
+      >
+        <div class="mb-4 text-6xl">📈</div>
+        <h3 class="mb-2 text-lg font-semibold text-gray-900 dark:text-gray-100">暂无趋势数据</h3>
+        <p class="text-center text-sm text-gray-600 dark:text-gray-400">
+          当前时间范围内没有找到成本趋势数据
+        </p>
       </div>
 
       <!-- 图表 -->
@@ -99,7 +111,7 @@ let chartInstance = null
 
 const filters = ref({
   range: '30d',
-  interval: 'daily'
+  interval: 'day'
 })
 
 const trends = ref([])
@@ -109,7 +121,7 @@ const stats = computed(() => {
     return { totalCost: 0, avgCost: 0, maxCost: 0, growthRate: 0 }
   }
 
-  const costs = trends.value.map((t) => t.cost || 0)
+  const costs = trends.value.map((t) => t.totalCost || t.cost || 0)
   const totalCost = costs.reduce((sum, c) => sum + c, 0)
   const avgCost = totalCost / costs.length
   const maxCost = Math.max(...costs)
@@ -125,15 +137,29 @@ const stats = computed(() => {
 const loadData = async () => {
   loading.value = true
   try {
+    console.log('🔍 Loading cost trends with params:', filters.value)
     const response = await apiClient.get('/admin/dashboard/cost-efficiency/trends', {
       params: filters.value
     })
-    if (response.success) {
+    console.log('📈 Trends response:', response)
+
+    if (response?.success) {
       trends.value = response.data?.data || []
+      console.log('✅ Trends data loaded:', trends.value.length, 'data points')
       createChart()
+    } else {
+      console.warn('⚠️ Trends response missing success flag:', response)
+      trends.value = []
+    }
+
+    // 检查数据库是否可用
+    if (response?.data?.available === false) {
+      showToast('数据库未启用,无法加载趋势数据', 'warning')
     }
   } catch (error) {
-    showToast('加载趋势数据失败', 'error')
+    console.error('❌ Failed to load cost trends:', error)
+    showToast('加载趋势数据失败: ' + (error.message || '未知错误'), 'error')
+    trends.value = []
   } finally {
     loading.value = false
   }
@@ -146,8 +172,14 @@ const createChart = () => {
     chartInstance.destroy()
   }
 
-  const labels = trends.value.map((t) => t.date || t.label)
-  const data = trends.value.map((t) => t.cost || 0)
+  const labels = trends.value.map((t) => {
+    if (t.timestamp) {
+      const date = new Date(t.timestamp)
+      return date.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })
+    }
+    return t.date || t.label || ''
+  })
+  const data = trends.value.map((t) => t.totalCost || t.cost || 0)
 
   chartInstance = new Chart(chartCanvas.value, {
     type: 'line',

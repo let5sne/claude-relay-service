@@ -348,14 +348,23 @@ const formatDetailTime = (value) => {
 
 const loadAccounts = async () => {
   try {
+    console.log('🔍 Loading accounts for API key breakdown')
     const response = await apiClient.get('/admin/accounts/usage-stats', {
       params: { range: 'total' }
     })
-    if (response.success) {
+    console.log('📋 Accounts response:', response)
+
+    if (response?.success) {
       accounts.value = response.data || []
+      console.log('✅ Accounts loaded:', accounts.value.length, 'accounts')
+    } else {
+      console.warn('⚠️ Accounts response missing success flag:', response)
+      accounts.value = []
     }
   } catch (error) {
-    showToast('加载账户列表失败', 'error')
+    console.error('❌ Failed to load accounts:', error)
+    showToast('加载账户列表失败: ' + (error.message || '未知错误'), 'error')
+    accounts.value = []
   }
 }
 
@@ -367,20 +376,29 @@ const loadBreakdown = async () => {
 
   loading.value = true
   try {
+    console.log('🔍 Loading API key breakdown for account:', selectedAccount.value)
     const response = await apiClient.get(
       `/admin/accounts/${selectedAccount.value}/usage-breakdown`,
       {
         params: { ...filters.value, limit: 100 }
       }
     )
-    if (response.success) {
+    console.log('🔑 Breakdown response:', response)
+
+    if (response?.success) {
       breakdown.value = response.items || []
+      console.log('✅ Breakdown loaded:', breakdown.value.length, 'API keys')
       // 清空展开状态和详情数据
       expandedKeys.value.clear()
       detailsData.value = {}
+    } else {
+      console.warn('⚠️ Breakdown response missing success flag:', response)
+      breakdown.value = []
     }
   } catch (error) {
-    showToast('加载 API Key 明细失败', 'error')
+    console.error('❌ Failed to load API key breakdown:', error)
+    showToast('加载 API Key 明细失败: ' + (error.message || '未知错误'), 'error')
+    breakdown.value = []
   } finally {
     loading.value = false
   }
