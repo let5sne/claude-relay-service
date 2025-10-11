@@ -10,14 +10,18 @@ const openaiAccountService = require('../services/openaiAccountService')
 const openaiResponsesAccountService = require('../services/openaiResponsesAccountService')
 const azureOpenaiAccountService = require('../services/azureOpenaiAccountService')
 const accountGroupService = require('../services/accountGroupService')
-const redis = require('../models/redis')
 const accountUsageService = require('../services/accountUsageService')
 const costEfficiencyService = require('../services/costEfficiencyService')
 const costTrackingService = require('../services/costTrackingService')
 const { authenticateAdmin } = require('../middleware/auth')
 const logger = require('../utils/logger')
+const redis = require('../models/redis')
 const oauthHelper = require('../utils/oauthHelper')
-const { startDeviceAuthorization, pollDeviceAuthorization, WorkOSDeviceAuthError } = require('../utils/workosOAuthHelper')
+const {
+  startDeviceAuthorization,
+  pollDeviceAuthorization,
+  WorkOSDeviceAuthError
+} = require('../utils/workosOAuthHelper')
 const CostCalculator = require('../utils/costCalculator')
 const pricingService = require('../services/pricingService')
 const claudeCodeHeadersService = require('../services/claudeCodeHeadersService')
