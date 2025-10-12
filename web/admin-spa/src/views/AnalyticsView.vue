@@ -50,6 +50,11 @@
       <div v-if="activeTab === 'cost-tracking'" class="space-y-6">
         <CostTrackingManagement />
       </div>
+
+      <!-- 额度配置监控 - 使用 v-if 懒加载 -->
+      <div v-if="activeTab === 'quota-allocation'" class="space-y-6">
+        <QuotaAllocationAnalysis />
+      </div>
     </div>
   </div>
 </template>
@@ -60,6 +65,7 @@ import CostEfficiencyAnalysis from '@/components/analytics/CostEfficiencyAnalysi
 import ApiKeyBreakdownAnalysis from '@/components/analytics/ApiKeyBreakdownAnalysis.vue'
 import CostTrendsAnalysis from '@/components/analytics/CostTrendsAnalysis.vue'
 import CostTrackingManagement from '@/components/analytics/CostTrackingManagement.vue'
+import QuotaAllocationAnalysis from '@/components/analytics/QuotaAllocationAnalysis.vue'
 
 const activeTab = ref('cost-efficiency')
 
@@ -83,6 +89,11 @@ const tabs = [
     id: 'cost-tracking',
     name: '成本配置与验证',
     icon: 'fas fa-cog'
+  },
+  {
+    id: 'quota-allocation',
+    name: '额度配置监控',
+    icon: 'fas fa-balance-scale'
   }
 ]
 </script>

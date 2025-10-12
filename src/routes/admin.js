@@ -5009,6 +5009,118 @@ router.get('/dashboard/cost-efficiency/trends', authenticateAdmin, async (req, r
   }
 })
 
+// 获取额度配置统计 - 监控已配置但未使用的额度
+router.get('/quota-allocation-stats', authenticateAdmin, async (req, res) => {
+  try {
+    const apiKeys = await apiKeyService.getAllApiKeys()
+
+    // 统计各类额度配置
+    const stats = {
+      totalKeys: 0,
+      activeKeys: 0,
+      totalDailyQuotaAllocated: 0,
+      totalMonthlyQuotaAllocated: 0,
+      totalDailyUsed: 0,
+      totalMonthlyUsed: 0,
+      totalAccumulatedUsed: 0, // 累计总使用金额
+      keyDetails: []
+    }
+
+    for (const key of apiKeys) {
+      if (key.deleted_at) {
+        continue
+      } // 跳过已删除的key
+
+      stats.totalKeys++
+
+      const dailyLimit = parseFloat(key.daily_cost_limit || 0)
+      const totalLimit = parseFloat(key.total_cost_limit || 0)
+      const totalAccumulated = parseFloat(key.total_cost_accumulated || 0)
+
+      // 获取今日已使用额度
+      let dailyUsed = 0
+      let monthlyUsed = 0
+
+      try {
+        const dailyCost = await redis.getDailyCost(key.id)
+        dailyUsed = parseFloat(dailyCost || 0)
+
+        // 计算月度已使用额度
+        const costStats = await redis.getCostStats(key.id)
+        monthlyUsed = parseFloat((costStats && costStats.monthly) || 0)
+      } catch (error) {
+        logger.warn(`Failed to get cost stats for key ${key.id}:`, error.message)
+      }
+
+      // 统计所有API Key的额度配置（不仅仅是active状态）
+      stats.totalDailyQuotaAllocated += dailyLimit
+      stats.totalMonthlyQuotaAllocated += totalLimit
+      stats.totalDailyUsed += dailyUsed
+      stats.totalMonthlyUsed += monthlyUsed
+      stats.totalAccumulatedUsed += totalAccumulated // 累计总使用
+
+      if (key.status === 'active') {
+        stats.activeKeys++
+      }
+
+      // 详细信息
+      stats.keyDetails.push({
+        id: key.id,
+        name: key.name,
+        status: key.status,
+        owner: key.created_by || 'admin',
+        dailyLimit,
+        dailyUsed,
+        dailyRemaining: Math.max(0, dailyLimit - dailyUsed),
+        dailyUtilization: dailyLimit > 0 ? ((dailyUsed / dailyLimit) * 100).toFixed(2) : 0,
+        totalLimit,
+        totalAccumulated,
+        totalRemaining: Math.max(0, totalLimit - totalAccumulated),
+        totalUtilization: totalLimit > 0 ? ((totalAccumulated / totalLimit) * 100).toFixed(2) : 0,
+        monthlyUsed,
+        accountId: key.account_id,
+        lastUsedAt: key.last_used_at
+      })
+    }
+
+    // 计算汇总统计
+    stats.totalDailyRemaining = Math.max(0, stats.totalDailyQuotaAllocated - stats.totalDailyUsed)
+    stats.totalMonthlyRemaining = Math.max(
+      0,
+      stats.totalMonthlyQuotaAllocated - stats.totalMonthlyUsed
+    )
+    stats.dailyUtilizationRate =
+      stats.totalDailyQuotaAllocated > 0
+        ? ((stats.totalDailyUsed / stats.totalDailyQuotaAllocated) * 100).toFixed(2)
+        : 0
+    stats.monthlyUtilizationRate =
+      stats.totalMonthlyQuotaAllocated > 0
+        ? ((stats.totalMonthlyUsed / stats.totalMonthlyQuotaAllocated) * 100).toFixed(2)
+        : 0
+
+    // 按剩余额度排序,找出配置过多的key
+    stats.keyDetails.sort((a, b) => {
+      if (a.status !== b.status) {
+        return a.status === 'active' ? -1 : 1
+      }
+      return b.dailyRemaining - a.dailyRemaining
+    })
+
+    return res.json({
+      success: true,
+      data: stats,
+      timestamp: new Date().toISOString(),
+      timezone: config.system.timezoneOffset || 8
+    })
+  } catch (error) {
+    logger.error('❌ Failed to get quota allocation stats:', error)
+    return res.status(500).json({
+      error: 'Failed to get quota allocation stats',
+      message: error.message
+    })
+  }
+})
+
 // 获取使用统计
 router.get('/usage-stats', authenticateAdmin, async (req, res) => {
   try {
