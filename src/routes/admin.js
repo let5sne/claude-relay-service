@@ -4399,6 +4399,67 @@ router.get('/accounts/:accountId/usage-breakdown', authenticateAdmin, async (req
   }
 })
 
+// 获取API Key的详细使用记录
+router.get('/api-keys/:keyId/usage-details', authenticateAdmin, async (req, res) => {
+  try {
+    const { keyId } = req.params
+    const { range = '30d', limit = 50 } = req.query
+
+    // 计算时间范围
+    let startDate = null
+    if (range !== 'total') {
+      const now = new Date()
+      const daysMap = { today: 1, '7days': 7, '30d': 30 }
+      const days = daysMap[range] || 30
+      startDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000)
+    }
+
+    // 查询使用记录
+    let query = `
+      SELECT 
+        id,
+        api_key_id,
+        model,
+        input_tokens,
+        output_tokens,
+        cache_create_tokens,
+        cache_read_tokens,
+        total_tokens,
+        total_cost,
+        occurred_at,
+        metadata
+      FROM usage_records
+      WHERE api_key_id = $1
+    `
+    const params = [keyId]
+
+    if (startDate) {
+      query += ' AND occurred_at >= $2'
+      params.push(startDate.toISOString())
+    }
+
+    query += ' ORDER BY occurred_at DESC'
+    query += ` LIMIT $${params.length + 1}`
+    params.push(parseInt(limit))
+
+    const result = await db.query(query, params)
+
+    return res.json({
+      success: true,
+      items: result.rows,
+      count: result.rows.length,
+      timestamp: new Date().toISOString()
+    })
+  } catch (error) {
+    logger.error('❌ Failed to get API key usage details:', error)
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to get API key usage details',
+      message: error.message
+    })
+  }
+})
+
 // 获取账号近30天使用历史
 router.get('/accounts/:accountId/usage-history', authenticateAdmin, async (req, res) => {
   try {
