@@ -581,20 +581,56 @@ class ClaudeConsoleRelayService {
                         }
                       }
 
-                      // 输出 token 只在 message_delta 中更新（message_start 中的值是占位符）
-                      if (
-                        data.type === 'message_delta' &&
-                        data.usage &&
-                        data.usage.output_tokens !== undefined
-                      ) {
-                        collectedUsageData.output_tokens = data.usage.output_tokens || 0
-                        logger.debug(
-                          `📊 Found output_tokens in message_delta: ${collectedUsageData.output_tokens}`
+                      // 处理 message_delta 中的 usage 数据
+                      if (data.type === 'message_delta' && data.usage) {
+                        // 提取所有usage字段，message_delta可能包含完整的usage信息
+                        if (data.usage.output_tokens !== undefined) {
+                          collectedUsageData.output_tokens = data.usage.output_tokens || 0
+                        }
+
+                        // 提取input_tokens（如果存在）
+                        if (data.usage.input_tokens !== undefined) {
+                          collectedUsageData.input_tokens = data.usage.input_tokens || 0
+                        }
+
+                        // 提取cache相关的tokens
+                        if (data.usage.cache_creation_input_tokens !== undefined) {
+                          collectedUsageData.cache_creation_input_tokens =
+                            data.usage.cache_creation_input_tokens || 0
+                        }
+                        if (data.usage.cache_read_input_tokens !== undefined) {
+                          collectedUsageData.cache_read_input_tokens =
+                            data.usage.cache_read_input_tokens || 0
+                        }
+
+                        // 检查是否有详细的 cache_creation 对象
+                        if (
+                          data.usage.cache_creation &&
+                          typeof data.usage.cache_creation === 'object'
+                        ) {
+                          collectedUsageData.cache_creation = {
+                            ephemeral_5m_input_tokens:
+                              data.usage.cache_creation.ephemeral_5m_input_tokens || 0,
+                            ephemeral_1h_input_tokens:
+                              data.usage.cache_creation.ephemeral_1h_input_tokens || 0
+                          }
+                        }
+
+                        logger.info(
+                          '📊 [Console] Collected usage data from message_delta:',
+                          JSON.stringify(collectedUsageData)
                         )
 
-                        // 只有在 message_delta 中才触发回调（此时 output_tokens 是真实值）
-                        if (collectedUsageData.input_tokens !== undefined && !finalUsageReported) {
-                          logger.info(`✅ Complete usage data collected - reporting to callback`)
+                        // 如果已经收集到了完整数据，触发回调
+                        if (
+                          collectedUsageData.input_tokens !== undefined &&
+                          collectedUsageData.output_tokens !== undefined &&
+                          !finalUsageReported
+                        ) {
+                          logger.info(
+                            '🎯 [Console] Complete usage data collected:',
+                            JSON.stringify(collectedUsageData)
+                          )
                           usageCallback({ ...collectedUsageData, accountId })
                           finalUsageReported = true
                         }
@@ -681,23 +717,53 @@ class ClaudeConsoleRelayService {
                 }
               }
 
-              // 如果流结束时仍未捕获到 usage 数据，记录一条基本请求（避免对账不一致）
+              // 🔧 兜底逻辑：确保所有未保存的usage数据都不会丢失
               if (!finalUsageReported && usageCallback) {
-                logger.warn(
-                  `⚠️ Stream completed without usage data - recording basic request for billing consistency (Account: ${account?.name || accountId})`
-                )
-                // 记录一条基本请求，token 数为 0，但标记为需要人工核对
-                usageCallback({
-                  accountId,
-                  model: collectedUsageData.model || body?.model || 'unknown',
-                  input_tokens: 0,
-                  output_tokens: 0,
-                  cache_creation_input_tokens: 0,
-                  cache_read_input_tokens: 0,
-                  // 添加元数据标记，表明这是一个没有 usage 数据的请求
-                  _no_usage_data: true,
-                  _requires_manual_review: true
-                })
+                if (
+                  collectedUsageData.input_tokens !== undefined ||
+                  collectedUsageData.output_tokens !== undefined
+                ) {
+                  // 补全缺失的字段
+                  if (collectedUsageData.input_tokens === undefined) {
+                    collectedUsageData.input_tokens = 0
+                    logger.warn(
+                      '⚠️ [Console] message_delta missing input_tokens, setting to 0. This may indicate incomplete usage data.'
+                    )
+                  }
+                  if (collectedUsageData.output_tokens === undefined) {
+                    collectedUsageData.output_tokens = 0
+                    logger.warn(
+                      '⚠️ [Console] message_delta missing output_tokens, setting to 0. This may indicate incomplete usage data.'
+                    )
+                  }
+                  // 确保有 model 字段
+                  if (!collectedUsageData.model) {
+                    collectedUsageData.model = body.model
+                  }
+                  logger.info(
+                    `📊 [Console] Saving incomplete usage data via fallback: ${JSON.stringify(collectedUsageData)}`
+                  )
+                  usageCallback({ ...collectedUsageData, accountId })
+                  finalUsageReported = true
+                } else {
+                  // 如果完全没有捕获到 usage 数据，记录一条基本请求（避免对账不一致）
+                  logger.warn(
+                    `⚠️ Stream completed without usage data - recording basic request for billing consistency (Account: ${account?.name || accountId})`
+                  )
+                  // 记录一条基本请求，token 数为 0，但标记为需要人工核对
+                  usageCallback({
+                    accountId,
+                    model: collectedUsageData.model || body?.model || 'unknown',
+                    input_tokens: 0,
+                    output_tokens: 0,
+                    cache_creation_input_tokens: 0,
+                    cache_read_input_tokens: 0,
+                    // 添加元数据标记，表明这是一个没有 usage 数据的请求
+                    _no_usage_data: true,
+                    _requires_manual_review: true
+                  })
+                  finalUsageReported = true
+                }
               }
 
               // 确保流正确结束
