@@ -4229,31 +4229,42 @@ router.get('/accounts/:accountId/usage-breakdown', authenticateAdmin, async (req
     // 查询该账户下的所有API Keys
     const apiKeys = await apiKeyService.getAllApiKeys()
 
-    // 账户ID可能是普通账户ID，也可能是账户组ID
+    // 检查是否为账户组
+    let groupMemberIds = []
+    try {
+      const group = await accountGroupService.getGroup(accountId)
+      if (group) {
+        // 如果是账户组，获取组内所有成员ID
+        groupMemberIds = await accountGroupService.getGroupMembers(accountId)
+        logger.info(` 账户组 ${group.name} 包含 ${groupMemberIds.length} 个成员`)
+      }
+    } catch (error) {
+      logger.debug('检查账户组失败，按普通账户处理:', error.message)
+    }
+
     // 账户组在API Key中存储为 `group:${groupId}` 格式
     const groupKey = `group:${accountId}`
 
+    // 构建所有可能的账户ID列表（包括账户组本身、group:格式、组内成员）
+    const possibleAccountIds = [accountId, groupKey, ...groupMemberIds]
+
     const accountApiKeys = apiKeys.filter(
       (key) =>
-        // 检查各种账户ID字段（包括普通账户和账户组）
-        key.claudeConsoleAccountId === accountId ||
-        key.claudeConsoleAccountId === groupKey ||
-        key.claudeAccountId === accountId ||
-        key.claudeAccountId === groupKey ||
-        key.geminiAccountId === accountId ||
-        key.geminiAccountId === groupKey ||
-        key.openaiAccountId === accountId ||
-        key.openaiAccountId === groupKey ||
-        key.bedrockAccountId === accountId ||
-        key.bedrockAccountId === groupKey ||
-        key.azureOpenaiAccountId === accountId ||
-        key.azureOpenaiAccountId === groupKey ||
-        key.openaiResponsesAccountId === accountId ||
-        key.openaiResponsesAccountId === groupKey ||
-        key.ccrAccountId === accountId ||
-        key.ccrAccountId === groupKey ||
-        key.droidAccountId === accountId ||
-        key.droidAccountId === groupKey
+        // 检查各种账户ID字段
+        // 一个API Key可以关联多个账户类型，只要其中任何一个匹配即可
+        possibleAccountIds.includes(key.claudeConsoleAccountId) ||
+        possibleAccountIds.includes(key.claudeAccountId) ||
+        possibleAccountIds.includes(key.geminiAccountId) ||
+        possibleAccountIds.includes(key.openaiAccountId) ||
+        possibleAccountIds.includes(key.bedrockAccountId) ||
+        possibleAccountIds.includes(key.azureOpenaiAccountId) ||
+        possibleAccountIds.includes(key.openaiResponsesAccountId) ||
+        possibleAccountIds.includes(key.ccrAccountId) ||
+        possibleAccountIds.includes(key.droidAccountId)
+    )
+
+    logger.info(
+      ` 账户 ${accountId} 找到 ${accountApiKeys.length} 个关联的API Key (检查了${possibleAccountIds.length}个可能的账户ID)`
     )
 
     if (accountApiKeys.length === 0) {
