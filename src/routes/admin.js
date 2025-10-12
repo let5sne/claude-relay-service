@@ -5272,17 +5272,15 @@ router.get('/quota-allocation-stats', authenticateAdmin, async (req, res) => {
     })
   }
 })
-
-// 获取账户每日额度统计分析
 router.get('/account-daily-quota-stats', authenticateAdmin, async (req, res) => {
   try {
     const accounts = []
 
     // 获取所有平台的账户
-    const claudeConsoleAccounts = await redis.getAllClaudeConsoleAccounts()
-    const claudeAccounts = await redis.getAllClaudeAccounts()
-    const geminiAccounts = await redis.getAllGeminiAccounts()
-    const openaiAccounts = await redis.getAllOpenAIAccounts()
+    const claudeConsoleAccounts = await claudeConsoleAccountService.getAllAccounts()
+    const claudeAccounts = await claudeAccountService.getAllAccounts()
+    const geminiAccounts = await geminiAccountService.getAllAccounts()
+    const openaiAccounts = await openaiAccountService.getAllAccounts()
 
     // 合并所有账户
     const allAccounts = [
