@@ -12,6 +12,7 @@ const azureOpenaiAccountService = require('../services/azureOpenaiAccountService
 const accountGroupService = require('../services/accountGroupService')
 const costEfficiencyService = require('../services/costEfficiencyService')
 const redis = require('../models/redis')
+const db = require('../models/db')
 const { authenticateAdmin } = require('../middleware/auth')
 const logger = require('../utils/logger')
 const oauthHelper = require('../utils/oauthHelper')
@@ -4214,6 +4215,128 @@ router.get('/accounts/:accountId/usage-stats', authenticateAdmin, async (req, re
     return res.status(500).json({
       success: false,
       error: 'Failed to get account usage stats',
+      message: error.message
+    })
+  }
+})
+
+// 获取账户的API Key使用明细
+router.get('/accounts/:accountId/usage-breakdown', authenticateAdmin, async (req, res) => {
+  try {
+    const { accountId } = req.params
+    const { range = '30d', limit = 100 } = req.query
+
+    // 查询该账户下的所有API Keys
+    const apiKeys = await apiKeyService.getAllApiKeys()
+    const accountApiKeys = apiKeys.filter(
+      (key) =>
+        // 检查各种账户ID字段
+        key.claudeConsoleAccountId === accountId ||
+        key.claudeAccountId === accountId ||
+        key.geminiAccountId === accountId ||
+        key.openaiAccountId === accountId ||
+        key.bedrockAccountId === accountId ||
+        key.azureOpenaiAccountId === accountId ||
+        key.openaiResponsesAccountId === accountId ||
+        key.ccrAccountId === accountId ||
+        key.droidAccountId === accountId
+    )
+
+    if (accountApiKeys.length === 0) {
+      return res.json({
+        success: true,
+        items: [],
+        summary: {
+          totalKeys: 0,
+          totalRequests: 0,
+          totalCost: 0,
+          totalTokens: 0
+        }
+      })
+    }
+
+    // 计算时间范围
+    let startDate = null
+    if (range !== 'total') {
+      const now = new Date()
+      const daysMap = { today: 1, '7days': 7, '30d': 30 }
+      const days = daysMap[range] || 30
+      startDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000)
+    }
+
+    // 获取每个API Key的使用统计
+    const breakdownItems = []
+    for (const apiKey of accountApiKeys) {
+      try {
+        // 从数据库查询使用记录
+        let query = `
+          SELECT 
+            COUNT(*) as requests,
+            SUM(input_tokens) as input_tokens,
+            SUM(output_tokens) as output_tokens,
+            SUM(cache_create_tokens) as cache_create_tokens,
+            SUM(cache_read_tokens) as cache_read_tokens,
+            SUM(total_tokens) as total_tokens,
+            SUM(total_cost) as total_cost,
+            MAX(occurred_at) as last_used_at
+          FROM usage_records
+          WHERE api_key_id = $1
+        `
+        const params = [apiKey.id]
+
+        if (startDate) {
+          query += ' AND occurred_at >= $2'
+          params.push(startDate.toISOString())
+        }
+
+        const result = await db.query(query, params)
+        const stats = result.rows[0]
+
+        if (stats && parseInt(stats.requests) > 0) {
+          breakdownItems.push({
+            apiKeyId: apiKey.id,
+            apiKeyName: apiKey.name || `Key-${apiKey.id.substring(0, 8)}`,
+            requests: parseInt(stats.requests) || 0,
+            inputTokens: parseInt(stats.input_tokens) || 0,
+            outputTokens: parseInt(stats.output_tokens) || 0,
+            cacheCreateTokens: parseInt(stats.cache_create_tokens) || 0,
+            cacheReadTokens: parseInt(stats.cache_read_tokens) || 0,
+            totalTokens: parseInt(stats.total_tokens) || 0,
+            totalCost: parseFloat(stats.total_cost) || 0,
+            lastUsedAt: stats.last_used_at
+          })
+        }
+      } catch (error) {
+        logger.warn(`⚠️ Failed to get stats for API key ${apiKey.id}:`, error.message)
+        continue
+      }
+    }
+
+    // 按请求数排序
+    breakdownItems.sort((a, b) => b.requests - a.requests)
+
+    // 限制返回数量
+    const limitedItems = breakdownItems.slice(0, parseInt(limit))
+
+    // 计算汇总
+    const summary = {
+      totalKeys: breakdownItems.length,
+      totalRequests: breakdownItems.reduce((sum, item) => sum + item.requests, 0),
+      totalCost: breakdownItems.reduce((sum, item) => sum + item.totalCost, 0),
+      totalTokens: breakdownItems.reduce((sum, item) => sum + item.totalTokens, 0)
+    }
+
+    return res.json({
+      success: true,
+      items: limitedItems,
+      summary,
+      timestamp: new Date().toISOString()
+    })
+  } catch (error) {
+    logger.error('❌ Failed to get account usage breakdown:', error)
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to get account usage breakdown',
       message: error.message
     })
   }
