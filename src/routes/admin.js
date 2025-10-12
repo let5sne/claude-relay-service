@@ -5273,6 +5273,97 @@ router.get('/quota-allocation-stats', authenticateAdmin, async (req, res) => {
   }
 })
 
+// 获取账户每日额度统计分析
+router.get('/account-daily-quota-stats', authenticateAdmin, async (req, res) => {
+  try {
+    const accounts = []
+
+    // 获取所有平台的账户
+    const claudeConsoleAccounts = await redis.getAllClaudeConsoleAccounts()
+    const claudeAccounts = await redis.getAllClaudeAccounts()
+    const geminiAccounts = await redis.getAllGeminiAccounts()
+    const openaiAccounts = await redis.getAllOpenAIAccounts()
+
+    // 合并所有账户
+    const allAccounts = [
+      ...claudeConsoleAccounts.map((acc) => ({ ...acc, platform: 'claude-console' })),
+      ...claudeAccounts.map((acc) => ({ ...acc, platform: 'claude' })),
+      ...geminiAccounts.map((acc) => ({ ...acc, platform: 'gemini' })),
+      ...openaiAccounts.map((acc) => ({ ...acc, platform: 'openai' }))
+    ]
+
+    let totalDailyQuota = 0
+    let totalDailyUsage = 0
+    let accountsWithQuota = 0
+    let accountsNearLimit = 0
+    let accountsOverLimit = 0
+
+    for (const account of allAccounts) {
+      const dailyQuota = parseFloat(account.dailyQuota || 0)
+      const dailyUsage = parseFloat(account.dailyUsage || 0)
+      const isActive = account.isActive === 'true' || account.isActive === true
+
+      // 只统计有额度限制的账户
+      if (dailyQuota > 0) {
+        accountsWithQuota++
+        totalDailyQuota += dailyQuota
+        totalDailyUsage += dailyUsage
+
+        const utilizationRate = (dailyUsage / dailyQuota) * 100
+
+        if (utilizationRate >= 100) {
+          accountsOverLimit++
+        } else if (utilizationRate >= 80) {
+          accountsNearLimit++
+        }
+
+        accounts.push({
+          id: account.id,
+          name: account.name,
+          platform: account.platform,
+          isActive,
+          dailyQuota,
+          dailyUsage,
+          dailyRemaining: Math.max(0, dailyQuota - dailyUsage),
+          utilizationRate: utilizationRate.toFixed(2),
+          quotaResetTime: account.quotaResetTime || '00:00',
+          lastResetDate: account.lastResetDate || '',
+          status:
+            utilizationRate >= 100 ? 'over_limit' : utilizationRate >= 80 ? 'near_limit' : 'normal'
+        })
+      }
+    }
+
+    // 按使用率降序排序
+    accounts.sort((a, b) => parseFloat(b.utilizationRate) - parseFloat(a.utilizationRate))
+
+    const stats = {
+      totalAccounts: allAccounts.length,
+      accountsWithQuota,
+      accountsNearLimit,
+      accountsOverLimit,
+      totalDailyQuota,
+      totalDailyUsage,
+      totalDailyRemaining: Math.max(0, totalDailyQuota - totalDailyUsage),
+      overallUtilizationRate:
+        totalDailyQuota > 0 ? ((totalDailyUsage / totalDailyQuota) * 100).toFixed(2) : 0,
+      accounts
+    }
+
+    return res.json({
+      success: true,
+      data: stats,
+      timestamp: new Date().toISOString()
+    })
+  } catch (error) {
+    logger.error('❌ Failed to get account daily quota stats:', error)
+    return res.status(500).json({
+      error: 'Failed to get account daily quota stats',
+      message: error.message
+    })
+  }
+})
+
 // 获取使用统计
 router.get('/usage-stats', authenticateAdmin, async (req, res) => {
   try {
