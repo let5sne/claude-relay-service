@@ -4228,18 +4228,32 @@ router.get('/accounts/:accountId/usage-breakdown', authenticateAdmin, async (req
 
     // 查询该账户下的所有API Keys
     const apiKeys = await apiKeyService.getAllApiKeys()
+
+    // 账户ID可能是普通账户ID，也可能是账户组ID
+    // 账户组在API Key中存储为 `group:${groupId}` 格式
+    const groupKey = `group:${accountId}`
+
     const accountApiKeys = apiKeys.filter(
       (key) =>
-        // 检查各种账户ID字段
+        // 检查各种账户ID字段（包括普通账户和账户组）
         key.claudeConsoleAccountId === accountId ||
+        key.claudeConsoleAccountId === groupKey ||
         key.claudeAccountId === accountId ||
+        key.claudeAccountId === groupKey ||
         key.geminiAccountId === accountId ||
+        key.geminiAccountId === groupKey ||
         key.openaiAccountId === accountId ||
+        key.openaiAccountId === groupKey ||
         key.bedrockAccountId === accountId ||
+        key.bedrockAccountId === groupKey ||
         key.azureOpenaiAccountId === accountId ||
+        key.azureOpenaiAccountId === groupKey ||
         key.openaiResponsesAccountId === accountId ||
+        key.openaiResponsesAccountId === groupKey ||
         key.ccrAccountId === accountId ||
-        key.droidAccountId === accountId
+        key.ccrAccountId === groupKey ||
+        key.droidAccountId === accountId ||
+        key.droidAccountId === groupKey
     )
 
     if (accountApiKeys.length === 0) {
