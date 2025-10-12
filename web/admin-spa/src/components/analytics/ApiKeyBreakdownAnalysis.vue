@@ -349,16 +349,25 @@ const formatDetailTime = (value) => {
 const loadAccounts = async () => {
   try {
     console.log('🔍 Loading accounts for API key breakdown')
-    const response = await apiClient.get('/admin/accounts/usage-stats', {
-      params: { range: 'total' }
+    const response = await apiClient.get('/admin/dashboard/cost-efficiency/accounts', {
+      params: {
+        range: '30d',
+        platform: 'all',
+        limit: 100
+      }
     })
     console.log('📋 Accounts response:', response)
 
-    if (response?.success) {
-      accounts.value = response.data || []
+    if (response?.success && response?.data?.items) {
+      // 转换数据格式，使其与原来的格式兼容
+      accounts.value = response.data.items.map((account) => ({
+        id: account.accountId,
+        name: account.accountName,
+        platform: account.platform
+      }))
       console.log('✅ Accounts loaded:', accounts.value.length, 'accounts')
     } else {
-      console.warn('⚠️ Accounts response missing success flag:', response)
+      console.warn('⚠️ Accounts response missing data:', response)
       accounts.value = []
     }
   } catch (error) {
