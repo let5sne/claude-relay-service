@@ -55,6 +55,11 @@
       <div v-if="activeTab === 'quota-allocation'" class="space-y-6">
         <QuotaAllocationAnalysis />
       </div>
+
+      <!-- 账户每日额度监控 - 使用 v-if 懒加载 -->
+      <div v-if="activeTab === 'account-daily-quota'" class="space-y-6">
+        <AccountDailyQuotaAnalysis />
+      </div>
     </div>
   </div>
 </template>
@@ -66,6 +71,7 @@ import ApiKeyBreakdownAnalysis from '@/components/analytics/ApiKeyBreakdownAnaly
 import CostTrendsAnalysis from '@/components/analytics/CostTrendsAnalysis.vue'
 import CostTrackingManagement from '@/components/analytics/CostTrackingManagement.vue'
 import QuotaAllocationAnalysis from '@/components/analytics/QuotaAllocationAnalysis.vue'
+import AccountDailyQuotaAnalysis from '@/components/analytics/AccountDailyQuotaAnalysis.vue'
 
 const activeTab = ref('cost-efficiency')
 
@@ -94,6 +100,11 @@ const tabs = [
     id: 'quota-allocation',
     name: '额度配置监控',
     icon: 'fas fa-balance-scale'
+  },
+  {
+    id: 'account-daily-quota',
+    name: '账户每日额度',
+    icon: 'fas fa-wallet'
   }
 ]
 </script>
