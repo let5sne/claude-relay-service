@@ -5200,22 +5200,26 @@ router.get('/quota-allocation-stats', authenticateAdmin, async (req, res) => {
         logger.warn(`Failed to get cost stats for key ${key.id}:`, error.message)
       }
 
-      // 统计所有API Key的额度配置（不仅仅是active状态）
-      stats.totalDailyQuotaAllocated += dailyLimit
-      stats.totalMonthlyQuotaAllocated += totalLimit
+      // 判断是否为活跃状态（isActive=true 且未过期）
+      const isActiveKey = key.isActive === true || key.isActive === 'true'
+
+      // 只统计活跃API Key的额度配置
+      if (isActiveKey) {
+        stats.activeKeys++
+        stats.totalDailyQuotaAllocated += dailyLimit
+        stats.totalMonthlyQuotaAllocated += totalLimit
+      }
+
+      // 所有Key的使用情况都要统计
       stats.totalDailyUsed += dailyUsed
       stats.totalMonthlyUsed += monthlyUsed
       stats.totalAccumulatedUsed += totalAccumulated // 累计总使用
-
-      if (key.status === 'active') {
-        stats.activeKeys++
-      }
 
       // 详细信息
       stats.keyDetails.push({
         id: key.id,
         name: key.name,
-        status: key.status,
+        status: isActiveKey ? 'active' : 'inactive',
         owner: key.created_by || 'admin',
         dailyLimit,
         dailyUsed,
