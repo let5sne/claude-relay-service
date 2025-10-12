@@ -5258,6 +5258,68 @@ router.get('/quota-allocation-stats', authenticateAdmin, async (req, res) => {
       return b.dailyRemaining - a.dailyRemaining
     })
 
+    // 🆕 获取账户额度信息，用于超额分配检测
+    const accountQuotaComparison = []
+    try {
+      // 获取所有平台的账户
+      const claudeConsoleAccounts = await claudeConsoleAccountService.getAllAccounts()
+      const claudeAccounts = await claudeAccountService.getAllAccounts()
+      const geminiAccounts = await geminiAccountService.getAllAccounts()
+      const openaiAccounts = await openaiAccountService.getAllAccounts()
+
+      const allAccounts = [
+        ...claudeConsoleAccounts.map((acc) => ({ ...acc, platform: 'claude-console' })),
+        ...claudeAccounts.map((acc) => ({ ...acc, platform: 'claude' })),
+        ...geminiAccounts.map((acc) => ({ ...acc, platform: 'gemini' })),
+        ...openaiAccounts.map((acc) => ({ ...acc, platform: 'openai' }))
+      ]
+
+      // 统计每个账户下API Key的总额度分配
+      for (const account of allAccounts) {
+        const accountDailyQuota = parseFloat(account.dailyQuota || 0)
+
+        // 只检查配置了每日额度的账户
+        if (accountDailyQuota > 0) {
+          // 计算该账户下所有活跃API Key的日额度总和
+          let totalAllocated = 0
+          const relatedKeys = stats.keyDetails.filter(
+            (key) => key.status === 'active' && key.accountId === account.id && key.dailyLimit > 0
+          )
+
+          totalAllocated = relatedKeys.reduce((sum, key) => sum + key.dailyLimit, 0)
+
+          // 计算超额情况
+          const overAllocated = totalAllocated - accountDailyQuota
+          const allocationRate =
+            accountDailyQuota > 0 ? ((totalAllocated / accountDailyQuota) * 100).toFixed(2) : 0
+
+          if (totalAllocated > 0) {
+            accountQuotaComparison.push({
+              accountId: account.id,
+              accountName: account.name,
+              platform: account.platform,
+              accountDailyQuota,
+              totalAllocated,
+              overAllocated: Math.max(0, overAllocated),
+              allocationRate,
+              isOverAllocated: overAllocated > 0,
+              relatedKeysCount: relatedKeys.length
+            })
+          }
+        }
+      }
+
+      // 按超额程度排序
+      accountQuotaComparison.sort((a, b) => b.overAllocated - a.overAllocated)
+    } catch (error) {
+      logger.warn('Failed to get account quota comparison:', error.message)
+    }
+
+    stats.accountQuotaComparison = accountQuotaComparison
+    stats.overAllocatedAccountsCount = accountQuotaComparison.filter(
+      (a) => a.isOverAllocated
+    ).length
+
     return res.json({
       success: true,
       data: stats,

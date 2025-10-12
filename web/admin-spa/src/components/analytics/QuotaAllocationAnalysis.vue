@@ -24,6 +24,59 @@
 
       <!-- 数据展示 -->
       <div v-else-if="stats">
+        <!-- 超额分配警告 -->
+        <div
+          v-if="stats.overAllocatedAccountsCount > 0"
+          class="mb-6 rounded-lg border-l-4 border-red-500 bg-red-50 p-4 dark:bg-red-900/20"
+        >
+          <div class="flex items-start">
+            <i class="fas fa-exclamation-triangle mr-3 mt-1 text-red-600 dark:text-red-400" />
+            <div class="flex-1">
+              <h4 class="font-semibold text-red-800 dark:text-red-300">⚠️ 检测到超额分配风险</h4>
+              <p class="mt-1 text-sm text-red-700 dark:text-red-400">
+                发现 {{ stats.overAllocatedAccountsCount }} 个账户的API
+                Key总额度超过了账户本身的每日限额，可能导致部分API Key无法正常使用。
+              </p>
+              <div class="mt-3 space-y-2">
+                <div
+                  v-for="account in stats.accountQuotaComparison.filter((a) => a.isOverAllocated)"
+                  :key="account.accountId"
+                  class="rounded-md bg-white p-3 dark:bg-gray-800"
+                >
+                  <div class="flex items-center justify-between">
+                    <div class="flex-1">
+                      <div class="font-medium text-gray-900 dark:text-gray-100">
+                        {{ account.accountName }}
+                        <span class="ml-2 text-xs text-gray-500">({{ account.platform }})</span>
+                      </div>
+                      <div class="mt-1 text-sm text-gray-600 dark:text-gray-400">
+                        账户额度: ${{ account.accountDailyQuota.toFixed(2) }} | API Key总分配: ${{
+                          account.totalAllocated.toFixed(2)
+                        }}
+                        | 超额:
+                        <span class="font-semibold text-red-600 dark:text-red-400">
+                          ${{ account.overAllocated.toFixed(2) }}
+                        </span>
+                      </div>
+                    </div>
+                    <div class="ml-4 text-right">
+                      <div class="text-lg font-bold text-red-600 dark:text-red-400">
+                        {{ account.allocationRate }}%
+                      </div>
+                      <div class="text-xs text-gray-500 dark:text-gray-400">
+                        {{ account.relatedKeysCount }} 个Key
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <p class="mt-3 text-xs text-red-600 dark:text-red-400">
+                💡 建议：调整API Key的额度配置，或增加账户的每日限额
+              </p>
+            </div>
+          </div>
+        </div>
+
         <!-- 汇总卡片 -->
         <div class="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
           <div
