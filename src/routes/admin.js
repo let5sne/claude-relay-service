@@ -10,6 +10,7 @@ const openaiAccountService = require('../services/openaiAccountService')
 const openaiResponsesAccountService = require('../services/openaiResponsesAccountService')
 const azureOpenaiAccountService = require('../services/azureOpenaiAccountService')
 const accountGroupService = require('../services/accountGroupService')
+const costEfficiencyService = require('../services/costEfficiencyService')
 const redis = require('../models/redis')
 const { authenticateAdmin } = require('../middleware/auth')
 const logger = require('../utils/logger')
@@ -5021,6 +5022,294 @@ router.get('/dashboard', authenticateAdmin, async (req, res) => {
   } catch (error) {
     logger.error('❌ Failed to get dashboard data:', error)
     return res.status(500).json({ error: 'Failed to get dashboard data', message: error.message })
+  }
+})
+
+// 📊 成本效率分析
+
+// 获取成本效率汇总数据
+router.get('/dashboard/cost-efficiency/summary', authenticateAdmin, async (req, res) => {
+  try {
+    const { range, start, end, month, platform, groupId } = req.query
+    const summary = await costEfficiencyService.getCostEfficiencySummary({
+      range,
+      start,
+      end,
+      month,
+      platform,
+      groupId
+    })
+
+    return res.json({
+      success: true,
+      data: summary
+    })
+  } catch (error) {
+    logger.error('❌ Failed to get cost efficiency summary:', error)
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to get cost efficiency summary',
+      message: error.message
+    })
+  }
+})
+
+// 获取账户成本效率详情
+router.get('/dashboard/cost-efficiency/accounts', authenticateAdmin, async (req, res) => {
+  try {
+    const { range, start, end, month, platform, groupId, limit, offset, sortBy, order } = req.query
+    const result = await costEfficiencyService.getCostEfficiencyAccounts({
+      range,
+      start,
+      end,
+      month,
+      platform,
+      groupId,
+      limit,
+      offset,
+      sortBy,
+      order
+    })
+
+    return res.json({
+      success: true,
+      data: result
+    })
+  } catch (error) {
+    logger.error('❌ Failed to get cost efficiency accounts:', error)
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to get cost efficiency accounts',
+      message: error.message
+    })
+  }
+})
+
+// 获取成本效率趋势数据
+router.get('/dashboard/cost-efficiency/trends', authenticateAdmin, async (req, res) => {
+  try {
+    const { range, start, end, month, platform, groupId, interval } = req.query
+    const data = await costEfficiencyService.getCostEfficiencyTrends({
+      range,
+      start,
+      end,
+      month,
+      platform,
+      groupId,
+      interval
+    })
+
+    return res.json({ success: true, data })
+  } catch (error) {
+    logger.error('❌ Failed to get cost efficiency trends:', error)
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to get cost efficiency trends',
+      message: error.message
+    })
+  }
+})
+
+// 获取额度配置监控统计
+router.get('/quota-allocation-stats', authenticateAdmin, async (req, res) => {
+  try {
+    const apiKeys = await apiKeyService.getAllApiKeys()
+
+    // 统计各类额度配置
+    const stats = {
+      totalKeys: 0,
+      activeKeys: 0,
+      totalDailyQuotaAllocated: 0,
+      totalMonthlyQuotaAllocated: 0,
+      totalDailyUsed: 0,
+      totalMonthlyUsed: 0,
+      totalAccumulatedUsed: 0, // 累计总使用金额
+      keyDetails: []
+    }
+
+    for (const key of apiKeys) {
+      if (key.deleted_at) {
+        continue
+      } // 跳过已删除的key
+
+      stats.totalKeys++
+
+      const dailyLimit = parseFloat(key.daily_cost_limit || 0)
+      const totalLimit = parseFloat(key.total_cost_limit || 0)
+      const totalAccumulated = parseFloat(key.total_cost_accumulated || 0)
+
+      // 获取今日已使用额度
+      let dailyUsed = 0
+      let monthlyUsed = 0
+
+      try {
+        const dailyCost = await redis.getDailyCost(key.id)
+        dailyUsed = parseFloat(dailyCost || 0)
+
+        // 计算月度已使用额度
+        const costStats = await redis.getCostStats(key.id)
+        monthlyUsed = parseFloat((costStats && costStats.monthly) || 0)
+      } catch (error) {
+        logger.warn(`Failed to get cost stats for key ${key.id}:`, error.message)
+      }
+
+      // 统计所有API Key的额度配置（不仅仅是active状态）
+      stats.totalDailyQuotaAllocated += dailyLimit
+      stats.totalMonthlyQuotaAllocated += totalLimit
+      stats.totalDailyUsed += dailyUsed
+      stats.totalMonthlyUsed += monthlyUsed
+      stats.totalAccumulatedUsed += totalAccumulated // 累计总使用
+
+      if (key.status === 'active') {
+        stats.activeKeys++
+      }
+
+      // 详细信息
+      stats.keyDetails.push({
+        id: key.id,
+        name: key.name,
+        status: key.status,
+        owner: key.created_by || 'admin',
+        dailyLimit,
+        dailyUsed,
+        dailyRemaining: Math.max(0, dailyLimit - dailyUsed),
+        dailyUtilization: dailyLimit > 0 ? ((dailyUsed / dailyLimit) * 100).toFixed(2) : 0,
+        totalLimit,
+        totalAccumulated,
+        totalRemaining: Math.max(0, totalLimit - totalAccumulated),
+        totalUtilization: totalLimit > 0 ? ((totalAccumulated / totalLimit) * 100).toFixed(2) : 0,
+        monthlyUsed,
+        accountId: key.account_id,
+        lastUsedAt: key.last_used_at
+      })
+    }
+
+    // 计算汇总统计
+    stats.totalDailyRemaining = Math.max(0, stats.totalDailyQuotaAllocated - stats.totalDailyUsed)
+    stats.totalMonthlyRemaining = Math.max(
+      0,
+      stats.totalMonthlyQuotaAllocated - stats.totalMonthlyUsed
+    )
+    stats.dailyUtilizationRate =
+      stats.totalDailyQuotaAllocated > 0
+        ? ((stats.totalDailyUsed / stats.totalDailyQuotaAllocated) * 100).toFixed(2)
+        : 0
+    stats.monthlyUtilizationRate =
+      stats.totalMonthlyQuotaAllocated > 0
+        ? ((stats.totalMonthlyUsed / stats.totalMonthlyQuotaAllocated) * 100).toFixed(2)
+        : 0
+
+    // 按剩余额度排序,找出配置过多的key
+    stats.keyDetails.sort((a, b) => {
+      if (a.status !== b.status) {
+        return a.status === 'active' ? -1 : 1
+      }
+      return b.dailyRemaining - a.dailyRemaining
+    })
+
+    return res.json({
+      success: true,
+      data: stats,
+      timestamp: new Date().toISOString(),
+      timezone: config.system.timezoneOffset || 8
+    })
+  } catch (error) {
+    logger.error('❌ Failed to get quota allocation stats:', error)
+    return res.status(500).json({
+      error: 'Failed to get quota allocation stats',
+      message: error.message
+    })
+  }
+})
+
+// 获取账户每日额度统计
+router.get('/account-daily-quota-stats', authenticateAdmin, async (req, res) => {
+  try {
+    const accounts = []
+
+    // 获取所有平台的账户
+    const claudeConsoleAccounts = await claudeConsoleAccountService.getAllAccounts()
+    const claudeAccounts = await claudeAccountService.getAllAccounts()
+    const geminiAccounts = await geminiAccountService.getAllAccounts()
+    const openaiAccounts = await openaiAccountService.getAllAccounts()
+
+    // 合并所有账户
+    const allAccounts = [
+      ...claudeConsoleAccounts.map((acc) => ({ ...acc, platform: 'claude-console' })),
+      ...claudeAccounts.map((acc) => ({ ...acc, platform: 'claude' })),
+      ...geminiAccounts.map((acc) => ({ ...acc, platform: 'gemini' })),
+      ...openaiAccounts.map((acc) => ({ ...acc, platform: 'openai' }))
+    ]
+
+    let totalDailyQuota = 0
+    let totalDailyUsage = 0
+    let accountsWithQuota = 0
+    let accountsNearLimit = 0
+    let accountsOverLimit = 0
+
+    for (const account of allAccounts) {
+      const dailyQuota = parseFloat(account.dailyQuota || 0)
+      const dailyUsage = parseFloat(account.dailyUsage || 0)
+      const isActive = account.isActive === 'true' || account.isActive === true
+
+      // 只统计有额度限制的账户
+      if (dailyQuota > 0) {
+        accountsWithQuota++
+        totalDailyQuota += dailyQuota
+        totalDailyUsage += dailyUsage
+
+        const utilizationRate = (dailyUsage / dailyQuota) * 100
+
+        if (utilizationRate >= 100) {
+          accountsOverLimit++
+        } else if (utilizationRate >= 80) {
+          accountsNearLimit++
+        }
+
+        accounts.push({
+          id: account.id,
+          name: account.name,
+          platform: account.platform,
+          isActive,
+          dailyQuota,
+          dailyUsage,
+          dailyRemaining: Math.max(0, dailyQuota - dailyUsage),
+          utilizationRate: utilizationRate.toFixed(2),
+          quotaResetTime: account.quotaResetTime || '00:00',
+          lastResetDate: account.lastResetDate || '',
+          status:
+            utilizationRate >= 100 ? 'over_limit' : utilizationRate >= 80 ? 'near_limit' : 'normal'
+        })
+      }
+    }
+
+    // 按使用率降序排序
+    accounts.sort((a, b) => parseFloat(b.utilizationRate) - parseFloat(a.utilizationRate))
+
+    const stats = {
+      totalAccounts: allAccounts.length,
+      accountsWithQuota,
+      accountsNearLimit,
+      accountsOverLimit,
+      totalDailyQuota,
+      totalDailyUsage,
+      totalDailyRemaining: Math.max(0, totalDailyQuota - totalDailyUsage),
+      overallUtilizationRate:
+        totalDailyQuota > 0 ? ((totalDailyUsage / totalDailyQuota) * 100).toFixed(2) : 0,
+      accounts
+    }
+
+    return res.json({
+      success: true,
+      data: stats,
+      timestamp: new Date().toISOString()
+    })
+  } catch (error) {
+    logger.error('❌ Failed to get account daily quota stats:', error)
+    return res.status(500).json({
+      error: 'Failed to get account daily quota stats',
+      message: error.message
+    })
   }
 })
 
