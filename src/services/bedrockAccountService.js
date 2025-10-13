@@ -78,6 +78,19 @@ async function syncBedrockAccountToPostgres(accountId, snapshot = null) {
   }
 }
 
+function normalizeSubscriptionExpiresAt(value) {
+  if (value === undefined || value === null || value === '') {
+    return ''
+  }
+
+  const date = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return ''
+  }
+
+  return date.toISOString()
+}
+
 class BedrockAccountService {
   constructor() {
     // 加密相关常量
@@ -112,7 +125,8 @@ class BedrockAccountService {
       accountType = 'shared', // 'dedicated' or 'shared'
       priority = 50, // 调度优先级 (1-100，数字越小优先级越高)
       schedulable = true, // 是否可被调度
-      credentialType = 'default' // 'default', 'access_key', 'bearer_token'
+      credentialType = 'default', // 'default', 'access_key', 'bearer_token'
+      subscriptionExpiresAt = null
     } = options
 
     const accountId = uuidv4()
@@ -128,6 +142,7 @@ class BedrockAccountService {
       priority,
       schedulable,
       credentialType,
+      subscriptionExpiresAt: normalizeSubscriptionExpiresAt(subscriptionExpiresAt),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       type: 'bedrock' // 标识这是Bedrock账户
@@ -158,6 +173,7 @@ class BedrockAccountService {
         priority,
         schedulable,
         credentialType,
+        subscriptionExpiresAt: accountData.subscriptionExpiresAt || null,
         createdAt: accountData.createdAt,
         type: 'bedrock'
       }
@@ -179,6 +195,11 @@ class BedrockAccountService {
       if (account.awsCredentials) {
         account.awsCredentials = this._decryptAwsCredentials(account.awsCredentials)
       }
+
+      account.subscriptionExpiresAt =
+        account.subscriptionExpiresAt && account.subscriptionExpiresAt !== ''
+          ? account.subscriptionExpiresAt
+          : null
 
       logger.debug(`🔍 获取Bedrock账户 - ID: ${accountId}, 名称: ${account.name}`)
 
@@ -219,7 +240,9 @@ class BedrockAccountService {
             createdAt: account.createdAt,
             updatedAt: account.updatedAt,
             type: 'bedrock',
-            hasCredentials: !!account.awsCredentials
+            hasCredentials: !!account.awsCredentials,
+            expiresAt: account.expiresAt || null,
+            subscriptionExpiresAt: account.subscriptionExpiresAt || null
           })
         }
       }
@@ -285,6 +308,14 @@ class BedrockAccountService {
         account.credentialType = updates.credentialType
       }
 
+      if (Object.prototype.hasOwnProperty.call(updates, 'subscriptionExpiresAt')) {
+        account.subscriptionExpiresAt = normalizeSubscriptionExpiresAt(
+          updates.subscriptionExpiresAt
+        )
+      } else if (Object.prototype.hasOwnProperty.call(updates, 'expiresAt')) {
+        account.subscriptionExpiresAt = normalizeSubscriptionExpiresAt(updates.expiresAt)
+      }
+
       // 更新AWS凭证
       if (updates.awsCredentials !== undefined) {
         if (updates.awsCredentials) {
@@ -321,7 +352,9 @@ class BedrockAccountService {
           schedulable: account.schedulable,
           credentialType: account.credentialType,
           updatedAt: account.updatedAt,
-          type: 'bedrock'
+          type: 'bedrock',
+          expiresAt: account.expiresAt || null,
+          subscriptionExpiresAt: account.subscriptionExpiresAt || null
         }
       }
     } catch (error) {

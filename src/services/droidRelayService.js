@@ -10,16 +10,6 @@ const logger = require('../utils/logger')
 
 const SYSTEM_PROMPT = 'You are Droid, an AI software engineering agent built by Factory.'
 
-const MODEL_REASONING_CONFIG = {
-  'claude-opus-4-1-20250805': 'off',
-  'claude-sonnet-4-20250514': 'medium',
-  'claude-sonnet-4-5-20250929': 'high',
-  'gpt-5-2025-08-07': 'high',
-  'gpt-5-codex': 'off'
-}
-
-const VALID_REASONING_LEVELS = new Set(['low', 'medium', 'high'])
-
 /**
  * Droid API 转发服务
  */
@@ -35,16 +25,7 @@ class DroidRelayService {
 
     this.userAgent = 'factory-cli/0.19.4'
     this.systemPrompt = SYSTEM_PROMPT
-    this.modelReasoningMap = new Map()
     this.API_KEY_STICKY_PREFIX = 'droid_api_key'
-
-    Object.entries(MODEL_REASONING_CONFIG).forEach(([modelId, level]) => {
-      if (!modelId) {
-        return
-      }
-      const normalized = typeof level === 'string' ? level.toLowerCase() : ''
-      this.modelReasoningMap.set(modelId, normalized)
-    })
   }
 
   _normalizeEndpointType(endpointType) {
@@ -82,7 +63,6 @@ class DroidRelayService {
           logger.info(`🔄 将请求模型从 ${originalModel} 映射为 ${mappedModel}`)
         }
         normalizedBody.model = mappedModel
-        normalizedBody.__forceDisableThinking = true
       }
     }
 
@@ -901,9 +881,7 @@ class DroidRelayService {
       headers['x-api-key'] = 'placeholder'
       headers['x-api-provider'] = 'anthropic'
 
-      // 处理 anthropic-beta 头
-      const reasoningLevel = this._getReasoningLevel(requestBody)
-      if (reasoningLevel) {
+      if (this._isThinkingRequested(requestBody)) {
         headers['anthropic-beta'] = 'interleaved-thinking-2025-05-14'
       }
     }
@@ -941,6 +919,36 @@ class DroidRelayService {
   }
 
   /**
+   * 判断请求是否启用 Anthropic 推理模式
+   */
+  _isThinkingRequested(requestBody) {
+    const thinking = requestBody && typeof requestBody === 'object' ? requestBody.thinking : null
+    if (!thinking) {
+      return false
+    }
+
+    if (thinking === true) {
+      return true
+    }
+
+    if (typeof thinking === 'string') {
+      return thinking.trim().toLowerCase() === 'enabled'
+    }
+
+    if (typeof thinking === 'object') {
+      if (thinking.enabled === true) {
+        return true
+      }
+
+      if (typeof thinking.type === 'string') {
+        return thinking.type.trim().toLowerCase() === 'enabled'
+      }
+    }
+
+    return false
+  }
+
+  /**
    * 处理请求体（注入 system prompt 等）
    */
   _processRequestBody(requestBody, endpointType, options = {}) {
@@ -949,17 +957,6 @@ class DroidRelayService {
 
     const hasStreamField =
       requestBody && Object.prototype.hasOwnProperty.call(requestBody, 'stream')
-
-    const shouldDisableThinking =
-      endpointType === 'anthropic' && processedBody.__forceDisableThinking === true
-
-    if ('__forceDisableThinking' in processedBody) {
-      delete processedBody.__forceDisableThinking
-    }
-
-    if (requestBody && '__forceDisableThinking' in requestBody) {
-      delete requestBody.__forceDisableThinking
-    }
 
     if (processedBody && Object.prototype.hasOwnProperty.call(processedBody, 'metadata')) {
       delete processedBody.metadata
@@ -975,9 +972,7 @@ class DroidRelayService {
       processedBody.stream = true
     }
 
-    const hasTemperatureField = Object.prototype.hasOwnProperty.call(processedBody, 'temperature')
-
-    // Anthropic 端点：处理 thinking 字段
+    // Anthropic 端点：仅注入系统提示
     if (endpointType === 'anthropic') {
       if (this.systemPrompt) {
         const promptBlock = { type: 'text', text: this.systemPrompt }
@@ -992,48 +987,9 @@ class DroidRelayService {
           processedBody.system = [promptBlock]
         }
       }
-
-      const reasoningLevel = shouldDisableThinking ? null : this._getReasoningLevel(requestBody)
-      if (reasoningLevel) {
-        const budgetTokens = {
-          low: 4096,
-          medium: 12288,
-          high: 24576
-        }
-        processedBody.thinking = {
-          type: 'enabled',
-          budget_tokens: budgetTokens[reasoningLevel]
-        }
-      } else {
-        delete processedBody.thinking
-      }
-
-      if (shouldDisableThinking) {
-        if ('thinking' in processedBody) {
-          delete processedBody.thinking
-        }
-      } else if (
-        processedBody.thinking &&
-        processedBody.thinking.type === 'enabled' &&
-        hasTemperatureField
-      ) {
-        const parsedTemperature =
-          typeof processedBody.temperature === 'string'
-            ? parseFloat(processedBody.temperature)
-            : processedBody.temperature
-
-        if (typeof parsedTemperature === 'number' && !Number.isNaN(parsedTemperature)) {
-          if (parsedTemperature <= 0) {
-            // 当开启 thinking 时，temperature 不允许为 0
-            processedBody.temperature = 1
-          }
-        } else {
-          delete processedBody.temperature
-        }
-      }
     }
 
-    // OpenAI 端点：处理 reasoning 字段
+    // OpenAI 端点：仅前置系统提示
     if (endpointType === 'openai') {
       if (this.systemPrompt) {
         if (processedBody.instructions) {
@@ -1043,16 +999,6 @@ class DroidRelayService {
         } else {
           processedBody.instructions = this.systemPrompt
         }
-      }
-
-      const reasoningLevel = this._getReasoningLevel(requestBody)
-      if (reasoningLevel) {
-        processedBody.reasoning = {
-          effort: reasoningLevel,
-          summary: 'auto'
-        }
-      } else {
-        delete processedBody.reasoning
       }
     }
 
@@ -1067,26 +1013,6 @@ class DroidRelayService {
     }
 
     return processedBody
-  }
-
-  /**
-   * 获取推理级别（如果在 requestBody 中配置）
-   */
-  _getReasoningLevel(requestBody) {
-    if (!requestBody || !requestBody.model) {
-      return null
-    }
-
-    const configured = this.modelReasoningMap.get(requestBody.model)
-    if (!configured) {
-      return null
-    }
-
-    if (!VALID_REASONING_LEVELS.has(configured)) {
-      return null
-    }
-
-    return configured
   }
 
   /**

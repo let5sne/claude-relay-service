@@ -3,7 +3,6 @@ const { v4: uuidv4 } = require('uuid')
 const crypto = require('crypto')
 const config = require('../../config/config')
 const logger = require('../utils/logger')
-const postgresUsageRepository = require('../repositories/postgresUsageRepository')
 
 // 加密相关常量
 const ALGORITHM = 'aes-256-cbc'
@@ -66,71 +65,17 @@ const AZURE_OPENAI_ACCOUNT_KEY_PREFIX = 'azure_openai:account:'
 const SHARED_AZURE_OPENAI_ACCOUNTS_KEY = 'shared_azure_openai_accounts'
 const ACCOUNT_SESSION_MAPPING_PREFIX = 'azure_openai_session_account_mapping:'
 
-function parsePriority(value, fallback = 50) {
-  if (value === undefined || value === null) {
-    return fallback
+function normalizeSubscriptionExpiresAt(value) {
+  if (value === undefined || value === null || value === '') {
+    return ''
   }
-  const parsed = parseInt(value, 10)
-  return Number.isNaN(parsed) ? fallback : parsed
-}
 
-function normalizeBoolean(value, defaultValue = true) {
-  if (value === undefined || value === null) {
-    return defaultValue
+  const date = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return ''
   }
-  if (typeof value === 'boolean') {
-    return value
-  }
-  return String(value).toLowerCase() === 'true'
-}
 
-function buildAzureAccountMetadata(account) {
-  return {
-    accountType: account.accountType || 'shared',
-    schedulable: normalizeBoolean(account.schedulable, true),
-    isActive: normalizeBoolean(account.isActive, true),
-    priority: parsePriority(account.priority, 50),
-    azureEndpoint: account.azureEndpoint || '',
-    apiVersion: account.apiVersion || '',
-    deploymentName: account.deploymentName || '',
-    hasProxy: Boolean(account.proxy && account.proxy !== ''),
-    credentialType: account.credentialType || 'default',
-    supportedModels: account.supportedModels || '',
-    createdAt: account.createdAt || '',
-    updatedAt: account.updatedAt || '',
-    status: account.status || 'active'
-  }
-}
-
-async function syncAzureOpenAIAccountToPostgres(accountId, snapshot = null) {
-  try {
-    const client = redisClient.getClientSafe()
-    const storedData =
-      snapshot || (await client.hgetall(`${AZURE_OPENAI_ACCOUNT_KEY_PREFIX}${accountId}`))
-
-    if (!storedData || Object.keys(storedData).length === 0) {
-      return
-    }
-
-    const priority = parsePriority(storedData.priority, 50)
-    const isActive = normalizeBoolean(storedData.isActive, true)
-    const status = isActive ? storedData.status || 'active' : 'inactive'
-
-    await postgresUsageRepository.upsertAccount({
-      id: accountId,
-      name: storedData.name || 'Azure OpenAI Account',
-      type: 'azure-openai',
-      platform: 'azure-openai',
-      description: storedData.description || '',
-      status,
-      priority,
-      metadata: buildAzureAccountMetadata(storedData)
-    })
-  } catch (error) {
-    logger.warn(
-      `⚠️ Failed to sync Azure OpenAI account ${accountId} to PostgreSQL: ${error.message}`
-    )
-  }
+  return date.toISOString()
 }
 
 // 加密函数
@@ -201,6 +146,7 @@ async function createAccount(accountData) {
     isActive: accountData.isActive !== false ? 'true' : 'false',
     status: 'active',
     schedulable: accountData.schedulable !== false ? 'true' : 'false',
+    subscriptionExpiresAt: normalizeSubscriptionExpiresAt(accountData.subscriptionExpiresAt || ''),
     createdAt: now,
     updatedAt: now
   }
@@ -219,10 +165,11 @@ async function createAccount(accountData) {
     await client.sadd(SHARED_AZURE_OPENAI_ACCOUNTS_KEY, accountId)
   }
 
-  await syncAzureOpenAIAccountToPostgres(accountId, account)
-
   logger.info(`Created Azure OpenAI account: ${accountId}`)
-  return account
+  return {
+    ...account,
+    subscriptionExpiresAt: account.subscriptionExpiresAt || null
+  }
 }
 
 // 获取账户
@@ -257,6 +204,11 @@ async function getAccount(accountId) {
     }
   }
 
+  accountData.subscriptionExpiresAt =
+    accountData.subscriptionExpiresAt && accountData.subscriptionExpiresAt !== ''
+      ? accountData.subscriptionExpiresAt
+      : null
+
   return accountData
 }
 
@@ -288,6 +240,13 @@ async function updateAccount(accountId, updates) {
         : JSON.stringify(updates.supportedModels)
   }
 
+  if (Object.prototype.hasOwnProperty.call(updates, 'subscriptionExpiresAt')) {
+    updates.subscriptionExpiresAt = normalizeSubscriptionExpiresAt(updates.subscriptionExpiresAt)
+  } else if (Object.prototype.hasOwnProperty.call(updates, 'expiresAt')) {
+    updates.subscriptionExpiresAt = normalizeSubscriptionExpiresAt(updates.expiresAt)
+    delete updates.expiresAt
+  }
+
   // 更新账户类型时处理共享账户集合
   const client = redisClient.getClientSafe()
   if (updates.accountType && updates.accountType !== existingAccount.accountType) {
@@ -305,8 +264,6 @@ async function updateAccount(accountId, updates) {
   // 合并更新后的账户数据
   const updatedAccount = { ...existingAccount, ...updates }
 
-  await syncAzureOpenAIAccountToPostgres(accountId)
-
   // 返回时解析代理配置
   if (updatedAccount.proxy && typeof updatedAccount.proxy === 'string') {
     try {
@@ -314,6 +271,10 @@ async function updateAccount(accountId, updates) {
     } catch (e) {
       updatedAccount.proxy = null
     }
+  }
+
+  if (!updatedAccount.subscriptionExpiresAt) {
+    updatedAccount.subscriptionExpiresAt = null
   }
 
   return updatedAccount
@@ -333,14 +294,6 @@ async function deleteAccount(accountId) {
 
   // 从共享账户集合中移除
   await client.srem(SHARED_AZURE_OPENAI_ACCOUNTS_KEY, accountId)
-
-  try {
-    await postgresUsageRepository.markAccountDeleted(accountId)
-  } catch (error) {
-    logger.warn(
-      `⚠️ Failed to mark Azure OpenAI account ${accountId} as deleted in PostgreSQL: ${error.message}`
-    )
-  }
 
   logger.info(`Deleted Azure OpenAI account: ${accountId}`)
   return true
@@ -383,7 +336,8 @@ async function getAllAccounts() {
       accounts.push({
         ...accountData,
         isActive: accountData.isActive === 'true',
-        schedulable: accountData.schedulable !== 'false'
+        schedulable: accountData.schedulable !== 'false',
+        subscriptionExpiresAt: accountData.subscriptionExpiresAt || null
       })
     }
   }

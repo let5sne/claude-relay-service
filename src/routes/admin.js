@@ -10,9 +10,7 @@ const openaiAccountService = require('../services/openaiAccountService')
 const openaiResponsesAccountService = require('../services/openaiResponsesAccountService')
 const azureOpenaiAccountService = require('../services/azureOpenaiAccountService')
 const accountGroupService = require('../services/accountGroupService')
-const costEfficiencyService = require('../services/costEfficiencyService')
 const redis = require('../models/redis')
-const db = require('../models/db')
 const { authenticateAdmin } = require('../middleware/auth')
 const logger = require('../utils/logger')
 const oauthHelper = require('../utils/oauthHelper')
@@ -33,6 +31,36 @@ const config = require('../../config/config')
 const ProxyHelper = require('../utils/proxyHelper')
 
 const router = express.Router()
+
+function normalizeNullableDate(value) {
+  if (value === undefined || value === null) {
+    return null
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    return trimmed === '' ? null : trimmed
+  }
+  return value
+}
+
+function formatSubscriptionExpiry(account) {
+  if (!account || typeof account !== 'object') {
+    return account
+  }
+
+  const rawSubscription = account.subscriptionExpiresAt
+  const rawToken = account.tokenExpiresAt !== undefined ? account.tokenExpiresAt : account.expiresAt
+
+  const subscriptionExpiresAt = normalizeNullableDate(rawSubscription)
+  const tokenExpiresAt = normalizeNullableDate(rawToken)
+
+  return {
+    ...account,
+    subscriptionExpiresAt,
+    tokenExpiresAt,
+    expiresAt: subscriptionExpiresAt
+  }
+}
 
 // 👥 用户管理
 
@@ -2084,6 +2112,7 @@ router.get('/claude-accounts', authenticateAdmin, async (req, res) => {
         try {
           const usageStats = await redis.getAccountUsageStats(account.id, 'openai')
           const groupInfos = await accountGroupService.getAccountGroups(account.id)
+          const formattedAccount = formatSubscriptionExpiry(account)
 
           // 获取会话窗口使用统计（仅对有活跃窗口的账户）
           let sessionWindowUsage = null
@@ -2126,7 +2155,7 @@ router.get('/claude-accounts', authenticateAdmin, async (req, res) => {
           }
 
           return {
-            ...account,
+            ...formattedAccount,
             // 转换schedulable为布尔值
             schedulable: account.schedulable === 'true' || account.schedulable === true,
             groupInfos,
@@ -2142,8 +2171,9 @@ router.get('/claude-accounts', authenticateAdmin, async (req, res) => {
           // 如果获取统计失败，返回空统计
           try {
             const groupInfos = await accountGroupService.getAccountGroups(account.id)
+            const formattedAccount = formatSubscriptionExpiry(account)
             return {
-              ...account,
+              ...formattedAccount,
               groupInfos,
               usage: {
                 daily: { tokens: 0, requests: 0, allTokens: 0 },
@@ -2157,8 +2187,9 @@ router.get('/claude-accounts', authenticateAdmin, async (req, res) => {
               `⚠️ Failed to get group info for account ${account.id}:`,
               groupError.message
             )
+            const formattedAccount = formatSubscriptionExpiry(account)
             return {
-              ...account,
+              ...formattedAccount,
               groupInfos: [],
               usage: {
                 daily: { tokens: 0, requests: 0, allTokens: 0 },
@@ -2172,7 +2203,8 @@ router.get('/claude-accounts', authenticateAdmin, async (req, res) => {
       })
     )
 
-    return res.json({ success: true, data: accountsWithStats })
+    const formattedAccounts = accountsWithStats.map(formatSubscriptionExpiry)
+    return res.json({ success: true, data: formattedAccounts })
   } catch (error) {
     logger.error('❌ Failed to get Claude accounts:', error)
     return res.status(500).json({ error: 'Failed to get Claude accounts', message: error.message })
@@ -2269,7 +2301,8 @@ router.post('/claude-accounts', authenticateAdmin, async (req, res) => {
       useUnifiedUserAgent,
       useUnifiedClientId,
       unifiedClientId,
-      expiresAt
+      expiresAt,
+      subscriptionExpiresAt
     } = req.body
 
     if (!name) {
@@ -2313,7 +2346,7 @@ router.post('/claude-accounts', authenticateAdmin, async (req, res) => {
       useUnifiedUserAgent: useUnifiedUserAgent === true, // 默认为false
       useUnifiedClientId: useUnifiedClientId === true, // 默认为false
       unifiedClientId: unifiedClientId || '', // 统一的客户端标识
-      expiresAt: expiresAt || null // 账户订阅到期时间
+      expiresAt: subscriptionExpiresAt ?? expiresAt ?? null // 账户订阅到期时间
     })
 
     // 如果是分组类型，将账户添加到分组
@@ -2328,7 +2361,8 @@ router.post('/claude-accounts', authenticateAdmin, async (req, res) => {
     }
 
     logger.success(`🏢 Admin created new Claude account: ${name} (${accountType || 'shared'})`)
-    return res.json({ success: true, data: newAccount })
+    const responseAccount = formatSubscriptionExpiry(newAccount)
+    return res.json({ success: true, data: responseAccount })
   } catch (error) {
     logger.error('❌ Failed to create Claude account:', error)
     return res
@@ -2402,8 +2436,12 @@ router.put('/claude-accounts/:accountId', authenticateAdmin, async (req, res) =>
 
     // 映射字段名：前端的expiresAt -> 后端的subscriptionExpiresAt
     const mappedUpdates = { ...updates }
-    if ('expiresAt' in mappedUpdates) {
+    if (Object.prototype.hasOwnProperty.call(updates, 'subscriptionExpiresAt')) {
+      mappedUpdates.subscriptionExpiresAt = updates.subscriptionExpiresAt
+    } else if (Object.prototype.hasOwnProperty.call(mappedUpdates, 'expiresAt')) {
       mappedUpdates.subscriptionExpiresAt = mappedUpdates.expiresAt
+    }
+    if (Object.prototype.hasOwnProperty.call(mappedUpdates, 'subscriptionExpiresAt')) {
       delete mappedUpdates.expiresAt
     }
 
@@ -2607,14 +2645,16 @@ router.get('/claude-console-accounts', authenticateAdmin, async (req, res) => {
     }
 
     // 为每个账户添加使用统计信息
+
     const accountsWithStats = await Promise.all(
       accounts.map(async (account) => {
+        const formattedAccount = formatSubscriptionExpiry(account)
         try {
           const usageStats = await redis.getAccountUsageStats(account.id, 'openai')
           const groupInfos = await accountGroupService.getAccountGroups(account.id)
 
           return {
-            ...account,
+            ...formattedAccount,
             // 转换schedulable为布尔值
             schedulable: account.schedulable === 'true' || account.schedulable === true,
             groupInfos,
@@ -2632,7 +2672,7 @@ router.get('/claude-console-accounts', authenticateAdmin, async (req, res) => {
           try {
             const groupInfos = await accountGroupService.getAccountGroups(account.id)
             return {
-              ...account,
+              ...formattedAccount,
               // 转换schedulable为布尔值
               schedulable: account.schedulable === 'true' || account.schedulable === true,
               groupInfos,
@@ -2648,7 +2688,7 @@ router.get('/claude-console-accounts', authenticateAdmin, async (req, res) => {
               groupError.message
             )
             return {
-              ...account,
+              ...formattedAccount,
               groupInfos: [],
               usage: {
                 daily: { tokens: 0, requests: 0, allTokens: 0 },
@@ -2661,7 +2701,8 @@ router.get('/claude-console-accounts', authenticateAdmin, async (req, res) => {
       })
     )
 
-    return res.json({ success: true, data: accountsWithStats })
+    const formattedAccounts = accountsWithStats.map(formatSubscriptionExpiry)
+    return res.json({ success: true, data: formattedAccounts })
   } catch (error) {
     logger.error('❌ Failed to get Claude Console accounts:', error)
     return res
@@ -2732,7 +2773,8 @@ router.post('/claude-console-accounts', authenticateAdmin, async (req, res) => {
     }
 
     logger.success(`🎮 Admin created Claude Console account: ${name}`)
-    return res.json({ success: true, data: newAccount })
+    const responseAccount = formatSubscriptionExpiry(newAccount)
+    return res.json({ success: true, data: responseAccount })
   } catch (error) {
     logger.error('❌ Failed to create Claude Console account:', error)
     return res
@@ -2799,8 +2841,12 @@ router.put('/claude-console-accounts/:accountId', authenticateAdmin, async (req,
 
     // 映射字段名：前端的expiresAt -> 后端的subscriptionExpiresAt
     const mappedUpdates = { ...updates }
-    if ('expiresAt' in mappedUpdates) {
+    if (Object.prototype.hasOwnProperty.call(updates, 'subscriptionExpiresAt')) {
+      mappedUpdates.subscriptionExpiresAt = updates.subscriptionExpiresAt
+    } else if (Object.prototype.hasOwnProperty.call(mappedUpdates, 'expiresAt')) {
       mappedUpdates.subscriptionExpiresAt = mappedUpdates.expiresAt
+    }
+    if (Object.prototype.hasOwnProperty.call(mappedUpdates, 'subscriptionExpiresAt')) {
       delete mappedUpdates.expiresAt
     }
 
@@ -3030,12 +3076,13 @@ router.get('/ccr-accounts', authenticateAdmin, async (req, res) => {
     // 为每个账户添加使用统计信息
     const accountsWithStats = await Promise.all(
       accounts.map(async (account) => {
+        const formattedAccount = formatSubscriptionExpiry(account)
         try {
           const usageStats = await redis.getAccountUsageStats(account.id)
           const groupInfos = await accountGroupService.getAccountGroups(account.id)
 
           return {
-            ...account,
+            ...formattedAccount,
             // 转换schedulable为布尔值
             schedulable: account.schedulable === 'true' || account.schedulable === true,
             groupInfos,
@@ -3053,7 +3100,7 @@ router.get('/ccr-accounts', authenticateAdmin, async (req, res) => {
           try {
             const groupInfos = await accountGroupService.getAccountGroups(account.id)
             return {
-              ...account,
+              ...formattedAccount,
               // 转换schedulable为布尔值
               schedulable: account.schedulable === 'true' || account.schedulable === true,
               groupInfos,
@@ -3069,7 +3116,7 @@ router.get('/ccr-accounts', authenticateAdmin, async (req, res) => {
               groupError.message
             )
             return {
-              ...account,
+              ...formattedAccount,
               groupInfos: [],
               usage: {
                 daily: { tokens: 0, requests: 0, allTokens: 0 },
@@ -3082,7 +3129,8 @@ router.get('/ccr-accounts', authenticateAdmin, async (req, res) => {
       })
     )
 
-    return res.json({ success: true, data: accountsWithStats })
+    const formattedAccounts = accountsWithStats.map(formatSubscriptionExpiry)
+    return res.json({ success: true, data: formattedAccounts })
   } catch (error) {
     logger.error('❌ Failed to get CCR accounts:', error)
     return res.status(500).json({ error: 'Failed to get CCR accounts', message: error.message })
@@ -3151,7 +3199,8 @@ router.post('/ccr-accounts', authenticateAdmin, async (req, res) => {
     }
 
     logger.success(`🔧 Admin created CCR account: ${name}`)
-    return res.json({ success: true, data: newAccount })
+    const responseAccount = formatSubscriptionExpiry(newAccount)
+    return res.json({ success: true, data: responseAccount })
   } catch (error) {
     logger.error('❌ Failed to create CCR account:', error)
     return res.status(500).json({ error: 'Failed to create CCR account', message: error.message })
@@ -3216,8 +3265,12 @@ router.put('/ccr-accounts/:accountId', authenticateAdmin, async (req, res) => {
 
     // 映射字段名：前端的expiresAt -> 后端的subscriptionExpiresAt
     const mappedUpdates = { ...updates }
-    if ('expiresAt' in mappedUpdates) {
+    if (Object.prototype.hasOwnProperty.call(updates, 'subscriptionExpiresAt')) {
+      mappedUpdates.subscriptionExpiresAt = updates.subscriptionExpiresAt
+    } else if (Object.prototype.hasOwnProperty.call(mappedUpdates, 'expiresAt')) {
       mappedUpdates.subscriptionExpiresAt = mappedUpdates.expiresAt
+    }
+    if (Object.prototype.hasOwnProperty.call(mappedUpdates, 'subscriptionExpiresAt')) {
       delete mappedUpdates.expiresAt
     }
 
@@ -3435,12 +3488,13 @@ router.get('/bedrock-accounts', authenticateAdmin, async (req, res) => {
     // 为每个账户添加使用统计信息
     const accountsWithStats = await Promise.all(
       accounts.map(async (account) => {
+        const formattedAccount = formatSubscriptionExpiry(account)
         try {
           const usageStats = await redis.getAccountUsageStats(account.id, 'openai')
           const groupInfos = await accountGroupService.getAccountGroups(account.id)
 
           return {
-            ...account,
+            ...formattedAccount,
             groupInfos,
             usage: {
               daily: usageStats.daily,
@@ -3456,7 +3510,7 @@ router.get('/bedrock-accounts', authenticateAdmin, async (req, res) => {
           try {
             const groupInfos = await accountGroupService.getAccountGroups(account.id)
             return {
-              ...account,
+              ...formattedAccount,
               groupInfos,
               usage: {
                 daily: { tokens: 0, requests: 0, allTokens: 0 },
@@ -3470,7 +3524,7 @@ router.get('/bedrock-accounts', authenticateAdmin, async (req, res) => {
               groupError.message
             )
             return {
-              ...account,
+              ...formattedAccount,
               groupInfos: [],
               usage: {
                 daily: { tokens: 0, requests: 0, allTokens: 0 },
@@ -3483,7 +3537,8 @@ router.get('/bedrock-accounts', authenticateAdmin, async (req, res) => {
       })
     )
 
-    return res.json({ success: true, data: accountsWithStats })
+    const formattedAccounts = accountsWithStats.map(formatSubscriptionExpiry)
+    return res.json({ success: true, data: formattedAccounts })
   } catch (error) {
     logger.error('❌ Failed to get Bedrock accounts:', error)
     return res.status(500).json({ error: 'Failed to get Bedrock accounts', message: error.message })
@@ -3545,7 +3600,8 @@ router.post('/bedrock-accounts', authenticateAdmin, async (req, res) => {
     }
 
     logger.success(`☁️ Admin created Bedrock account: ${name}`)
-    return res.json({ success: true, data: result.data })
+    const responseAccount = formatSubscriptionExpiry(result.data)
+    return res.json({ success: true, data: responseAccount })
   } catch (error) {
     logger.error('❌ Failed to create Bedrock account:', error)
     return res
@@ -3584,8 +3640,12 @@ router.put('/bedrock-accounts/:accountId', authenticateAdmin, async (req, res) =
 
     // 映射字段名：前端的expiresAt -> 后端的subscriptionExpiresAt
     const mappedUpdates = { ...updates }
-    if ('expiresAt' in mappedUpdates) {
+    if (Object.prototype.hasOwnProperty.call(updates, 'subscriptionExpiresAt')) {
+      mappedUpdates.subscriptionExpiresAt = updates.subscriptionExpiresAt
+    } else if (Object.prototype.hasOwnProperty.call(mappedUpdates, 'expiresAt')) {
       mappedUpdates.subscriptionExpiresAt = mappedUpdates.expiresAt
+    }
+    if (Object.prototype.hasOwnProperty.call(mappedUpdates, 'subscriptionExpiresAt')) {
       delete mappedUpdates.expiresAt
     }
 
@@ -3908,14 +3968,13 @@ router.get('/gemini-accounts', authenticateAdmin, async (req, res) => {
     // 为每个账户添加使用统计信息（与Claude账户相同的逻辑）
     const accountsWithStats = await Promise.all(
       accounts.map(async (account) => {
+        const formattedAccount = formatSubscriptionExpiry(account)
         try {
           const usageStats = await redis.getAccountUsageStats(account.id, 'openai')
           const groupInfos = await accountGroupService.getAccountGroups(account.id)
 
           return {
-            ...account,
-            // 映射字段：使用 subscriptionExpiresAt 作为前端显示的 expiresAt
-            expiresAt: account.subscriptionExpiresAt || null,
+            ...formattedAccount,
             groupInfos,
             usage: {
               daily: usageStats.daily,
@@ -3932,9 +3991,7 @@ router.get('/gemini-accounts', authenticateAdmin, async (req, res) => {
           try {
             const groupInfos = await accountGroupService.getAccountGroups(account.id)
             return {
-              ...account,
-              // 映射字段：使用 subscriptionExpiresAt 作为前端显示的 expiresAt
-              expiresAt: account.subscriptionExpiresAt || null,
+              ...formattedAccount,
               groupInfos,
               usage: {
                 daily: { tokens: 0, requests: 0, allTokens: 0 },
@@ -3948,7 +4005,7 @@ router.get('/gemini-accounts', authenticateAdmin, async (req, res) => {
               groupError.message
             )
             return {
-              ...account,
+              ...formattedAccount,
               groupInfos: [],
               usage: {
                 daily: { tokens: 0, requests: 0, allTokens: 0 },
@@ -3961,7 +4018,8 @@ router.get('/gemini-accounts', authenticateAdmin, async (req, res) => {
       })
     )
 
-    return res.json({ success: true, data: accountsWithStats })
+    const formattedAccounts = accountsWithStats.map(formatSubscriptionExpiry)
+    return res.json({ success: true, data: formattedAccounts })
   } catch (error) {
     logger.error('❌ Failed to get Gemini accounts:', error)
     return res.status(500).json({ error: 'Failed to get accounts', message: error.message })
@@ -4001,7 +4059,8 @@ router.post('/gemini-accounts', authenticateAdmin, async (req, res) => {
     }
 
     logger.success(`🏢 Admin created new Gemini account: ${accountData.name}`)
-    return res.json({ success: true, data: newAccount })
+    const responseAccount = formatSubscriptionExpiry(newAccount)
+    return res.json({ success: true, data: responseAccount })
   } catch (error) {
     logger.error('❌ Failed to create Gemini account:', error)
     return res.status(500).json({ error: 'Failed to create account', message: error.message })
@@ -4061,15 +4120,20 @@ router.put('/gemini-accounts/:accountId', authenticateAdmin, async (req, res) =>
 
     // 映射字段名：前端的expiresAt -> 后端的subscriptionExpiresAt
     const mappedUpdates = { ...updates }
-    if ('expiresAt' in mappedUpdates) {
+    if (Object.prototype.hasOwnProperty.call(updates, 'subscriptionExpiresAt')) {
+      mappedUpdates.subscriptionExpiresAt = updates.subscriptionExpiresAt
+    } else if (Object.prototype.hasOwnProperty.call(mappedUpdates, 'expiresAt')) {
       mappedUpdates.subscriptionExpiresAt = mappedUpdates.expiresAt
+    }
+    if (Object.prototype.hasOwnProperty.call(mappedUpdates, 'subscriptionExpiresAt')) {
       delete mappedUpdates.expiresAt
     }
 
     const updatedAccount = await geminiAccountService.updateAccount(accountId, mappedUpdates)
 
     logger.success(`📝 Admin updated Gemini account: ${accountId}`)
-    return res.json({ success: true, data: updatedAccount })
+    const responseAccount = formatSubscriptionExpiry(updatedAccount)
+    return res.json({ success: true, data: responseAccount })
   } catch (error) {
     logger.error('❌ Failed to update Gemini account:', error)
     return res.status(500).json({ error: 'Failed to update account', message: error.message })
@@ -4247,214 +4311,6 @@ router.get('/accounts/:accountId/usage-stats', authenticateAdmin, async (req, re
     return res.status(500).json({
       success: false,
       error: 'Failed to get account usage stats',
-      message: error.message
-    })
-  }
-})
-
-// 获取账户的API Key使用明细
-router.get('/accounts/:accountId/usage-breakdown', authenticateAdmin, async (req, res) => {
-  try {
-    const { accountId } = req.params
-    const { range = '30d', limit = 100 } = req.query
-
-    // 查询该账户下的所有API Keys
-    const apiKeys = await apiKeyService.getAllApiKeys()
-
-    // 检查是否为账户组
-    let groupMemberIds = []
-    try {
-      const group = await accountGroupService.getGroup(accountId)
-      if (group) {
-        // 如果是账户组，获取组内所有成员ID
-        groupMemberIds = await accountGroupService.getGroupMembers(accountId)
-        logger.info(` 账户组 ${group.name} 包含 ${groupMemberIds.length} 个成员`)
-      }
-    } catch (error) {
-      logger.debug('检查账户组失败，按普通账户处理:', error.message)
-    }
-
-    // 账户组在API Key中存储为 `group:${groupId}` 格式
-    const groupKey = `group:${accountId}`
-
-    // 构建所有可能的账户ID列表（包括账户组本身、group:格式、组内成员）
-    const possibleAccountIds = [accountId, groupKey, ...groupMemberIds]
-
-    const accountApiKeys = apiKeys.filter(
-      (key) =>
-        // 检查各种账户ID字段
-        // 一个API Key可以关联多个账户类型，只要其中任何一个匹配即可
-        possibleAccountIds.includes(key.claudeConsoleAccountId) ||
-        possibleAccountIds.includes(key.claudeAccountId) ||
-        possibleAccountIds.includes(key.geminiAccountId) ||
-        possibleAccountIds.includes(key.openaiAccountId) ||
-        possibleAccountIds.includes(key.bedrockAccountId) ||
-        possibleAccountIds.includes(key.azureOpenaiAccountId) ||
-        possibleAccountIds.includes(key.openaiResponsesAccountId) ||
-        possibleAccountIds.includes(key.ccrAccountId) ||
-        possibleAccountIds.includes(key.droidAccountId)
-    )
-
-    logger.info(
-      ` 账户 ${accountId} 找到 ${accountApiKeys.length} 个关联的API Key (检查了${possibleAccountIds.length}个可能的账户ID)`
-    )
-
-    if (accountApiKeys.length === 0) {
-      return res.json({
-        success: true,
-        items: [],
-        summary: {
-          totalKeys: 0,
-          totalRequests: 0,
-          totalCost: 0,
-          totalTokens: 0
-        }
-      })
-    }
-
-    // 计算时间范围
-    let startDate = null
-    if (range !== 'total') {
-      const now = new Date()
-      const daysMap = { today: 1, '7days': 7, '30d': 30 }
-      const days = daysMap[range] || 30
-      startDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000)
-    }
-
-    // 获取每个API Key的使用统计
-    const breakdownItems = []
-    for (const apiKey of accountApiKeys) {
-      try {
-        // 从数据库查询使用记录
-        let query = `
-          SELECT 
-            COUNT(*) as requests,
-            SUM(input_tokens) as input_tokens,
-            SUM(output_tokens) as output_tokens,
-            SUM(cache_create_tokens) as cache_create_tokens,
-            SUM(cache_read_tokens) as cache_read_tokens,
-            SUM(total_tokens) as total_tokens,
-            SUM(total_cost) as total_cost,
-            MAX(occurred_at) as last_used_at
-          FROM usage_records
-          WHERE api_key_id = $1
-        `
-        const params = [apiKey.id]
-
-        if (startDate) {
-          query += ' AND occurred_at >= $2'
-          params.push(startDate.toISOString())
-        }
-
-        const result = await db.query(query, params)
-        const stats = result.rows[0]
-
-        if (stats && parseInt(stats.requests) > 0) {
-          breakdownItems.push({
-            apiKeyId: apiKey.id,
-            apiKeyName: apiKey.name || `Key-${apiKey.id.substring(0, 8)}`,
-            requests: parseInt(stats.requests) || 0,
-            inputTokens: parseInt(stats.input_tokens) || 0,
-            outputTokens: parseInt(stats.output_tokens) || 0,
-            cacheCreateTokens: parseInt(stats.cache_create_tokens) || 0,
-            cacheReadTokens: parseInt(stats.cache_read_tokens) || 0,
-            totalTokens: parseInt(stats.total_tokens) || 0,
-            totalCost: parseFloat(stats.total_cost) || 0,
-            lastUsedAt: stats.last_used_at
-          })
-        }
-      } catch (error) {
-        logger.warn(`⚠️ Failed to get stats for API key ${apiKey.id}:`, error.message)
-        continue
-      }
-    }
-
-    // 按请求数排序
-    breakdownItems.sort((a, b) => b.requests - a.requests)
-
-    // 限制返回数量
-    const limitedItems = breakdownItems.slice(0, parseInt(limit))
-
-    // 计算汇总
-    const summary = {
-      totalKeys: breakdownItems.length,
-      totalRequests: breakdownItems.reduce((sum, item) => sum + item.requests, 0),
-      totalCost: breakdownItems.reduce((sum, item) => sum + item.totalCost, 0),
-      totalTokens: breakdownItems.reduce((sum, item) => sum + item.totalTokens, 0)
-    }
-
-    return res.json({
-      success: true,
-      items: limitedItems,
-      summary,
-      timestamp: new Date().toISOString()
-    })
-  } catch (error) {
-    logger.error('❌ Failed to get account usage breakdown:', error)
-    return res.status(500).json({
-      success: false,
-      error: 'Failed to get account usage breakdown',
-      message: error.message
-    })
-  }
-})
-
-// 获取API Key的详细使用记录
-router.get('/api-keys/:keyId/usage-details', authenticateAdmin, async (req, res) => {
-  try {
-    const { keyId } = req.params
-    const { range = '30d', limit = 50 } = req.query
-
-    // 计算时间范围
-    let startDate = null
-    if (range !== 'total') {
-      const now = new Date()
-      const daysMap = { today: 1, '7days': 7, '30d': 30 }
-      const days = daysMap[range] || 30
-      startDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000)
-    }
-
-    // 查询使用记录
-    let query = `
-      SELECT 
-        id,
-        api_key_id,
-        model,
-        input_tokens,
-        output_tokens,
-        cache_create_tokens,
-        cache_read_tokens,
-        total_tokens,
-        total_cost,
-        occurred_at,
-        metadata
-      FROM usage_records
-      WHERE api_key_id = $1
-    `
-    const params = [keyId]
-
-    if (startDate) {
-      query += ' AND occurred_at >= $2'
-      params.push(startDate.toISOString())
-    }
-
-    query += ' ORDER BY occurred_at DESC'
-    query += ` LIMIT $${params.length + 1}`
-    params.push(parseInt(limit))
-
-    const result = await db.query(query, params)
-
-    return res.json({
-      success: true,
-      items: result.rows,
-      count: result.rows.length,
-      timestamp: new Date().toISOString()
-    })
-  } catch (error) {
-    logger.error('❌ Failed to get API key usage details:', error)
-    return res.status(500).json({
-      success: false,
-      error: 'Failed to get API key usage details',
       message: error.message
     })
   }
@@ -5165,355 +5021,6 @@ router.get('/dashboard', authenticateAdmin, async (req, res) => {
   } catch (error) {
     logger.error('❌ Failed to get dashboard data:', error)
     return res.status(500).json({ error: 'Failed to get dashboard data', message: error.message })
-  }
-})
-
-// 成本效率分析路由
-router.get('/dashboard/cost-efficiency/summary', authenticateAdmin, async (req, res) => {
-  try {
-    const { range, start, end, month, platform, groupId } = req.query
-    const summary = await costEfficiencyService.getCostEfficiencySummary({
-      range,
-      start,
-      end,
-      month,
-      platform,
-      groupId
-    })
-
-    return res.json({
-      success: true,
-      data: summary
-    })
-  } catch (error) {
-    logger.error('❌ Failed to get cost efficiency summary:', error)
-    return res.status(500).json({
-      success: false,
-      error: 'Failed to get cost efficiency summary',
-      message: error.message
-    })
-  }
-})
-
-router.get('/dashboard/cost-efficiency/accounts', authenticateAdmin, async (req, res) => {
-  try {
-    const { range, start, end, month, platform, groupId, limit, offset, sortBy, order } = req.query
-
-    const result = await costEfficiencyService.getCostEfficiencyAccounts({
-      range,
-      start,
-      end,
-      month,
-      platform,
-      groupId,
-      limit,
-      offset,
-      sortBy,
-      order
-    })
-
-    return res.json({
-      success: true,
-      data: result
-    })
-  } catch (error) {
-    logger.error('❌ Failed to get cost efficiency accounts:', error)
-    return res.status(500).json({
-      success: false,
-      error: 'Failed to get cost efficiency accounts',
-      message: error.message
-    })
-  }
-})
-
-router.get('/dashboard/cost-efficiency/trends', authenticateAdmin, async (req, res) => {
-  try {
-    const { range, start, end, month, platform, groupId, interval } = req.query
-    const data = await costEfficiencyService.getCostEfficiencyTrends({
-      range,
-      start,
-      end,
-      month,
-      platform,
-      groupId,
-      interval
-    })
-
-    return res.json({ success: true, data })
-  } catch (error) {
-    logger.error('❌ Failed to get cost efficiency trends:', error)
-    return res.status(500).json({
-      success: false,
-      error: 'Failed to get cost efficiency trends',
-      message: error.message
-    })
-  }
-})
-
-// 获取额度配置统计 - 监控已配置但未使用的额度
-router.get('/quota-allocation-stats', authenticateAdmin, async (req, res) => {
-  try {
-    const apiKeys = await apiKeyService.getAllApiKeys()
-
-    // 统计各类额度配置
-    const stats = {
-      totalKeys: 0,
-      activeKeys: 0,
-      totalDailyQuotaAllocated: 0,
-      totalMonthlyQuotaAllocated: 0,
-      totalDailyUsed: 0,
-      totalMonthlyUsed: 0,
-      totalAccumulatedUsed: 0, // 累计总使用金额
-      keyDetails: []
-    }
-
-    for (const key of apiKeys) {
-      if (key.deleted_at) {
-        continue
-      } // 跳过已删除的key
-
-      stats.totalKeys++
-
-      const dailyLimit = parseFloat(key.daily_cost_limit || 0)
-      const totalLimit = parseFloat(key.total_cost_limit || 0)
-      const totalAccumulated = parseFloat(key.total_cost_accumulated || 0)
-
-      // 获取今日已使用额度
-      let dailyUsed = 0
-      let monthlyUsed = 0
-
-      try {
-        const dailyCost = await redis.getDailyCost(key.id)
-        dailyUsed = parseFloat(dailyCost || 0)
-
-        // 计算月度已使用额度
-        const costStats = await redis.getCostStats(key.id)
-        monthlyUsed = parseFloat((costStats && costStats.monthly) || 0)
-      } catch (error) {
-        logger.warn(`Failed to get cost stats for key ${key.id}:`, error.message)
-      }
-
-      // 判断是否为活跃状态（isActive=true 且未过期）
-      const isActiveKey = key.isActive === true || key.isActive === 'true'
-
-      // 只统计活跃API Key的额度配置
-      if (isActiveKey) {
-        stats.activeKeys++
-        stats.totalDailyQuotaAllocated += dailyLimit
-        stats.totalMonthlyQuotaAllocated += totalLimit
-      }
-
-      // 所有Key的使用情况都要统计
-      stats.totalDailyUsed += dailyUsed
-      stats.totalMonthlyUsed += monthlyUsed
-      stats.totalAccumulatedUsed += totalAccumulated // 累计总使用
-
-      // 详细信息
-      stats.keyDetails.push({
-        id: key.id,
-        name: key.name,
-        status: isActiveKey ? 'active' : 'inactive',
-        owner: key.created_by || 'admin',
-        dailyLimit,
-        dailyUsed,
-        dailyRemaining: Math.max(0, dailyLimit - dailyUsed),
-        dailyUtilization: dailyLimit > 0 ? ((dailyUsed / dailyLimit) * 100).toFixed(2) : 0,
-        totalLimit,
-        totalAccumulated,
-        totalRemaining: Math.max(0, totalLimit - totalAccumulated),
-        totalUtilization: totalLimit > 0 ? ((totalAccumulated / totalLimit) * 100).toFixed(2) : 0,
-        monthlyUsed,
-        accountId: key.account_id,
-        lastUsedAt: key.last_used_at
-      })
-    }
-
-    // 计算汇总统计
-    stats.totalDailyRemaining = Math.max(0, stats.totalDailyQuotaAllocated - stats.totalDailyUsed)
-    stats.totalMonthlyRemaining = Math.max(
-      0,
-      stats.totalMonthlyQuotaAllocated - stats.totalMonthlyUsed
-    )
-    stats.dailyUtilizationRate =
-      stats.totalDailyQuotaAllocated > 0
-        ? ((stats.totalDailyUsed / stats.totalDailyQuotaAllocated) * 100).toFixed(2)
-        : 0
-    stats.monthlyUtilizationRate =
-      stats.totalMonthlyQuotaAllocated > 0
-        ? ((stats.totalMonthlyUsed / stats.totalMonthlyQuotaAllocated) * 100).toFixed(2)
-        : 0
-
-    // 按剩余额度排序,找出配置过多的key
-    stats.keyDetails.sort((a, b) => {
-      if (a.status !== b.status) {
-        return a.status === 'active' ? -1 : 1
-      }
-      return b.dailyRemaining - a.dailyRemaining
-    })
-
-    // 🆕 获取账户额度信息，用于超额分配检测
-    const accountQuotaComparison = []
-    try {
-      // 获取所有平台的账户
-      const claudeConsoleAccounts = await claudeConsoleAccountService.getAllAccounts()
-      const claudeAccounts = await claudeAccountService.getAllAccounts()
-      const geminiAccounts = await geminiAccountService.getAllAccounts()
-      const openaiAccounts = await openaiAccountService.getAllAccounts()
-
-      const allAccounts = [
-        ...claudeConsoleAccounts.map((acc) => ({ ...acc, platform: 'claude-console' })),
-        ...claudeAccounts.map((acc) => ({ ...acc, platform: 'claude' })),
-        ...geminiAccounts.map((acc) => ({ ...acc, platform: 'gemini' })),
-        ...openaiAccounts.map((acc) => ({ ...acc, platform: 'openai' }))
-      ]
-
-      // 统计每个账户下API Key的总额度分配
-      for (const account of allAccounts) {
-        const accountDailyQuota = parseFloat(account.dailyQuota || 0)
-
-        // 只检查配置了每日额度的账户
-        if (accountDailyQuota > 0) {
-          // 计算该账户下所有活跃API Key的日额度总和
-          let totalAllocated = 0
-          const relatedKeys = stats.keyDetails.filter(
-            (key) => key.status === 'active' && key.accountId === account.id && key.dailyLimit > 0
-          )
-
-          totalAllocated = relatedKeys.reduce((sum, key) => sum + key.dailyLimit, 0)
-
-          // 计算超额情况
-          const overAllocated = totalAllocated - accountDailyQuota
-          const allocationRate =
-            accountDailyQuota > 0 ? ((totalAllocated / accountDailyQuota) * 100).toFixed(2) : 0
-
-          if (totalAllocated > 0) {
-            accountQuotaComparison.push({
-              accountId: account.id,
-              accountName: account.name,
-              platform: account.platform,
-              accountDailyQuota,
-              totalAllocated,
-              overAllocated: Math.max(0, overAllocated),
-              allocationRate,
-              isOverAllocated: overAllocated > 0,
-              relatedKeysCount: relatedKeys.length
-            })
-          }
-        }
-      }
-
-      // 按超额程度排序
-      accountQuotaComparison.sort((a, b) => b.overAllocated - a.overAllocated)
-    } catch (error) {
-      logger.warn('Failed to get account quota comparison:', error.message)
-    }
-
-    stats.accountQuotaComparison = accountQuotaComparison
-    stats.overAllocatedAccountsCount = accountQuotaComparison.filter(
-      (a) => a.isOverAllocated
-    ).length
-
-    return res.json({
-      success: true,
-      data: stats,
-      timestamp: new Date().toISOString(),
-      timezone: config.system.timezoneOffset || 8
-    })
-  } catch (error) {
-    logger.error('❌ Failed to get quota allocation stats:', error)
-    return res.status(500).json({
-      error: 'Failed to get quota allocation stats',
-      message: error.message
-    })
-  }
-})
-router.get('/account-daily-quota-stats', authenticateAdmin, async (req, res) => {
-  try {
-    const accounts = []
-
-    // 获取所有平台的账户
-    const claudeConsoleAccounts = await claudeConsoleAccountService.getAllAccounts()
-    const claudeAccounts = await claudeAccountService.getAllAccounts()
-    const geminiAccounts = await geminiAccountService.getAllAccounts()
-    const openaiAccounts = await openaiAccountService.getAllAccounts()
-
-    // 合并所有账户
-    const allAccounts = [
-      ...claudeConsoleAccounts.map((acc) => ({ ...acc, platform: 'claude-console' })),
-      ...claudeAccounts.map((acc) => ({ ...acc, platform: 'claude' })),
-      ...geminiAccounts.map((acc) => ({ ...acc, platform: 'gemini' })),
-      ...openaiAccounts.map((acc) => ({ ...acc, platform: 'openai' }))
-    ]
-
-    let totalDailyQuota = 0
-    let totalDailyUsage = 0
-    let accountsWithQuota = 0
-    let accountsNearLimit = 0
-    let accountsOverLimit = 0
-
-    for (const account of allAccounts) {
-      const dailyQuota = parseFloat(account.dailyQuota || 0)
-      const dailyUsage = parseFloat(account.dailyUsage || 0)
-      const isActive = account.isActive === 'true' || account.isActive === true
-
-      // 只统计有额度限制的账户
-      if (dailyQuota > 0) {
-        accountsWithQuota++
-        totalDailyQuota += dailyQuota
-        totalDailyUsage += dailyUsage
-
-        const utilizationRate = (dailyUsage / dailyQuota) * 100
-
-        if (utilizationRate >= 100) {
-          accountsOverLimit++
-        } else if (utilizationRate >= 80) {
-          accountsNearLimit++
-        }
-
-        accounts.push({
-          id: account.id,
-          name: account.name,
-          platform: account.platform,
-          isActive,
-          dailyQuota,
-          dailyUsage,
-          dailyRemaining: Math.max(0, dailyQuota - dailyUsage),
-          utilizationRate: utilizationRate.toFixed(2),
-          quotaResetTime: account.quotaResetTime || '00:00',
-          lastResetDate: account.lastResetDate || '',
-          status:
-            utilizationRate >= 100 ? 'over_limit' : utilizationRate >= 80 ? 'near_limit' : 'normal'
-        })
-      }
-    }
-
-    // 按使用率降序排序
-    accounts.sort((a, b) => parseFloat(b.utilizationRate) - parseFloat(a.utilizationRate))
-
-    const stats = {
-      totalAccounts: allAccounts.length,
-      accountsWithQuota,
-      accountsNearLimit,
-      accountsOverLimit,
-      totalDailyQuota,
-      totalDailyUsage,
-      totalDailyRemaining: Math.max(0, totalDailyQuota - totalDailyUsage),
-      overallUtilizationRate:
-        totalDailyQuota > 0 ? ((totalDailyUsage / totalDailyQuota) * 100).toFixed(2) : 0,
-      accounts
-    }
-
-    return res.json({
-      success: true,
-      data: stats,
-      timestamp: new Date().toISOString()
-    })
-  } catch (error) {
-    logger.error('❌ Failed to get account daily quota stats:', error)
-    return res.status(500).json({
-      error: 'Failed to get account daily quota stats',
-      message: error.message
-    })
   }
 })
 
@@ -7774,8 +7281,9 @@ router.get('/openai-accounts', authenticateAdmin, async (req, res) => {
         try {
           const usageStats = await redis.getAccountUsageStats(account.id, 'openai')
           const groupInfos = await fetchAccountGroups(account.id)
+          const formattedAccount = formatSubscriptionExpiry(account)
           return {
-            ...account,
+            ...formattedAccount,
             groupInfos,
             usage: {
               daily: usageStats.daily,
@@ -7786,8 +7294,9 @@ router.get('/openai-accounts', authenticateAdmin, async (req, res) => {
         } catch (error) {
           logger.debug(`Failed to get usage stats for OpenAI account ${account.id}:`, error)
           const groupInfos = await fetchAccountGroups(account.id)
+          const formattedAccount = formatSubscriptionExpiry(account)
           return {
-            ...account,
+            ...formattedAccount,
             groupInfos,
             usage: {
               daily: { requests: 0, tokens: 0, allTokens: 0 },
@@ -7801,9 +7310,11 @@ router.get('/openai-accounts', authenticateAdmin, async (req, res) => {
 
     logger.info(`获取 OpenAI 账户列表: ${accountsWithStats.length} 个账户`)
 
+    const formattedAccounts = accountsWithStats.map(formatSubscriptionExpiry)
+
     return res.json({
       success: true,
-      data: accountsWithStats
+      data: formattedAccounts
     })
   } catch (error) {
     logger.error('获取 OpenAI 账户列表失败:', error)
@@ -7829,7 +7340,8 @@ router.post('/openai-accounts', authenticateAdmin, async (req, res) => {
       rateLimitDuration,
       priority,
       needsImmediateRefresh, // 是否需要立即刷新
-      requireRefreshSuccess // 是否必须刷新成功才能创建
+      requireRefreshSuccess, // 是否必须刷新成功才能创建
+      subscriptionExpiresAt
     } = req.body
 
     if (!name) {
@@ -7851,7 +7363,8 @@ router.post('/openai-accounts', authenticateAdmin, async (req, res) => {
       accountInfo: accountInfo || {},
       proxy: proxy || null,
       isActive: true,
-      schedulable: true
+      schedulable: true,
+      subscriptionExpiresAt: subscriptionExpiresAt || null
     }
 
     // 如果需要立即刷新且必须成功（OpenAI 手动模式）
@@ -7887,9 +7400,11 @@ router.post('/openai-accounts', authenticateAdmin, async (req, res) => {
 
         logger.success(`✅ 创建并验证 OpenAI 账户成功: ${name} (ID: ${tempAccount.id})`)
 
+        const responseAccount = formatSubscriptionExpiry(refreshedAccount)
+
         return res.json({
           success: true,
-          data: refreshedAccount,
+          data: responseAccount,
           message: '账户创建成功，并已获取完整 token 信息'
         })
       } catch (refreshError) {
@@ -7951,9 +7466,11 @@ router.post('/openai-accounts', authenticateAdmin, async (req, res) => {
 
     logger.success(`✅ 创建 OpenAI 账户成功: ${name} (ID: ${createdAccount.id})`)
 
+    const responseAccount = formatSubscriptionExpiry(createdAccount)
+
     return res.json({
       success: true,
-      data: createdAccount
+      data: responseAccount
     })
   } catch (error) {
     logger.error('创建 OpenAI 账户失败:', error)
@@ -8130,10 +7647,19 @@ router.put('/openai-accounts/:id', authenticateAdmin, async (req, res) => {
           : currentAccount.emailVerified
     }
 
-    // 映射字段名：前端的expiresAt -> 后端的subscriptionExpiresAt (订阅过期时间)
-    // 注意：这里不影响上面 OAuth token 的 expiresAt 字段
-    if ('expiresAt' in updates && !updates.openaiOauth?.expires_in) {
+    const hasOauthExpiry = Boolean(updates.openaiOauth?.expires_in)
+
+    // 处理订阅过期时间字段：优先使用 subscriptionExpiresAt，兼容旧版的 expiresAt
+    if (Object.prototype.hasOwnProperty.call(updates, 'subscriptionExpiresAt')) {
+      updateData.subscriptionExpiresAt = updates.subscriptionExpiresAt
+    } else if (Object.prototype.hasOwnProperty.call(updates, 'expiresAt') && !hasOauthExpiry) {
       updateData.subscriptionExpiresAt = updates.expiresAt
+    }
+
+    if (
+      !hasOauthExpiry &&
+      Object.prototype.hasOwnProperty.call(updateData, 'subscriptionExpiresAt')
+    ) {
       delete updateData.expiresAt
     }
 
@@ -8151,7 +7677,8 @@ router.put('/openai-accounts/:id', authenticateAdmin, async (req, res) => {
     }
 
     logger.success(`📝 Admin updated OpenAI account: ${id}`)
-    return res.json({ success: true, data: updatedAccount })
+    const responseAccount = formatSubscriptionExpiry(updatedAccount)
+    return res.json({ success: true, data: responseAccount })
   } catch (error) {
     logger.error('❌ Failed to update OpenAI account:', error)
     return res.status(500).json({ error: 'Failed to update account', message: error.message })
@@ -8232,9 +7759,11 @@ router.put('/openai-accounts/:id/toggle', authenticateAdmin, async (req, res) =>
       `✅ ${account.enabled ? '启用' : '禁用'} OpenAI 账户: ${account.name} (ID: ${id})`
     )
 
+    const responseAccount = formatSubscriptionExpiry(account)
+
     return res.json({
       success: true,
-      data: account
+      data: responseAccount
     })
   } catch (error) {
     logger.error('切换 OpenAI 账户状态失败:', error)
@@ -8340,11 +7869,12 @@ router.get('/azure-openai-accounts', authenticateAdmin, async (req, res) => {
     // 为每个账户添加使用统计信息和分组信息
     const accountsWithStats = await Promise.all(
       accounts.map(async (account) => {
+        const formattedAccount = formatSubscriptionExpiry(account)
         try {
           const usageStats = await redis.getAccountUsageStats(account.id, 'openai')
           const groupInfos = await accountGroupService.getAccountGroups(account.id)
           return {
-            ...account,
+            ...formattedAccount,
             groupInfos,
             usage: {
               daily: usageStats.daily,
@@ -8357,7 +7887,7 @@ router.get('/azure-openai-accounts', authenticateAdmin, async (req, res) => {
           try {
             const groupInfos = await accountGroupService.getAccountGroups(account.id)
             return {
-              ...account,
+              ...formattedAccount,
               groupInfos,
               usage: {
                 daily: { requests: 0, tokens: 0, allTokens: 0 },
@@ -8368,7 +7898,7 @@ router.get('/azure-openai-accounts', authenticateAdmin, async (req, res) => {
           } catch (groupError) {
             logger.debug(`Failed to get group info for account ${account.id}:`, groupError)
             return {
-              ...account,
+              ...formattedAccount,
               groupInfos: [],
               usage: {
                 daily: { requests: 0, tokens: 0, allTokens: 0 },
@@ -8381,9 +7911,11 @@ router.get('/azure-openai-accounts', authenticateAdmin, async (req, res) => {
       })
     )
 
+    const formattedAccounts = accountsWithStats.map(formatSubscriptionExpiry)
+
     res.json({
       success: true,
-      data: accountsWithStats
+      data: formattedAccounts
     })
   } catch (error) {
     logger.error('Failed to fetch Azure OpenAI accounts:', error)
@@ -8502,9 +8034,11 @@ router.post('/azure-openai-accounts', authenticateAdmin, async (req, res) => {
       }
     }
 
+    const responseAccount = formatSubscriptionExpiry(account)
+
     res.json({
       success: true,
-      data: account,
+      data: responseAccount,
       message: 'Azure OpenAI account created successfully'
     })
   } catch (error) {
@@ -8525,16 +8059,21 @@ router.put('/azure-openai-accounts/:id', authenticateAdmin, async (req, res) => 
 
     // 映射字段名：前端的expiresAt -> 后端的subscriptionExpiresAt
     const mappedUpdates = { ...updates }
-    if ('expiresAt' in mappedUpdates) {
+    if (Object.prototype.hasOwnProperty.call(updates, 'subscriptionExpiresAt')) {
+      mappedUpdates.subscriptionExpiresAt = updates.subscriptionExpiresAt
+    } else if (Object.prototype.hasOwnProperty.call(mappedUpdates, 'expiresAt')) {
       mappedUpdates.subscriptionExpiresAt = mappedUpdates.expiresAt
+    }
+    if (Object.prototype.hasOwnProperty.call(mappedUpdates, 'subscriptionExpiresAt')) {
       delete mappedUpdates.expiresAt
     }
 
     const account = await azureOpenaiAccountService.updateAccount(id, mappedUpdates)
+    const responseAccount = formatSubscriptionExpiry(account)
 
     res.json({
       success: true,
-      data: account,
+      data: responseAccount,
       message: 'Azure OpenAI account updated successfully'
     })
   } catch (error) {
@@ -8787,6 +8326,7 @@ router.get('/openai-responses-accounts', authenticateAdmin, async (req, res) => 
     // 处理额度信息、使用统计和绑定的 API Key 数量
     const accountsWithStats = await Promise.all(
       accounts.map(async (account) => {
+        const formattedAccount = formatSubscriptionExpiry(account)
         try {
           // 检查是否需要重置额度
           const today = redis.getDateStringInTimezone()
@@ -8841,7 +8381,7 @@ router.get('/openai-responses-accounts', authenticateAdmin, async (req, res) => 
           }
 
           return {
-            ...account,
+            ...formattedAccount,
             boundApiKeysCount: boundCount,
             usage: {
               daily: usageStats.daily,
@@ -8852,7 +8392,7 @@ router.get('/openai-responses-accounts', authenticateAdmin, async (req, res) => 
         } catch (error) {
           logger.error(`Failed to process OpenAI-Responses account ${account.id}:`, error)
           return {
-            ...account,
+            ...formattedAccount,
             boundApiKeysCount: 0,
             usage: {
               daily: { requests: 0, tokens: 0, allTokens: 0 },
@@ -8864,7 +8404,9 @@ router.get('/openai-responses-accounts', authenticateAdmin, async (req, res) => 
       })
     )
 
-    res.json({ success: true, data: accountsWithStats })
+    const formattedAccounts = accountsWithStats.map(formatSubscriptionExpiry)
+
+    res.json({ success: true, data: formattedAccounts })
   } catch (error) {
     logger.error('Failed to get OpenAI-Responses accounts:', error)
     res.status(500).json({ success: false, message: error.message })
@@ -8875,7 +8417,8 @@ router.get('/openai-responses-accounts', authenticateAdmin, async (req, res) => 
 router.post('/openai-responses-accounts', authenticateAdmin, async (req, res) => {
   try {
     const account = await openaiResponsesAccountService.createAccount(req.body)
-    res.json({ success: true, account })
+    const responseAccount = formatSubscriptionExpiry(account)
+    res.json({ success: true, data: responseAccount })
   } catch (error) {
     logger.error('Failed to create OpenAI-Responses account:', error)
     res.status(500).json({
@@ -8905,8 +8448,12 @@ router.put('/openai-responses-accounts/:id', authenticateAdmin, async (req, res)
 
     // 映射字段名：前端的expiresAt -> 后端的subscriptionExpiresAt
     const mappedUpdates = { ...updates }
-    if ('expiresAt' in mappedUpdates) {
+    if (Object.prototype.hasOwnProperty.call(updates, 'subscriptionExpiresAt')) {
+      mappedUpdates.subscriptionExpiresAt = updates.subscriptionExpiresAt
+    } else if (Object.prototype.hasOwnProperty.call(mappedUpdates, 'expiresAt')) {
       mappedUpdates.subscriptionExpiresAt = mappedUpdates.expiresAt
+    }
+    if (Object.prototype.hasOwnProperty.call(mappedUpdates, 'subscriptionExpiresAt')) {
       delete mappedUpdates.expiresAt
     }
 
@@ -8916,7 +8463,13 @@ router.put('/openai-responses-accounts/:id', authenticateAdmin, async (req, res)
       return res.status(400).json(result)
     }
 
-    res.json({ success: true, ...result })
+    const updatedAccountData = await openaiResponsesAccountService.getAccount(id)
+    if (updatedAccountData) {
+      updatedAccountData.apiKey = '***'
+    }
+    const responseAccount = formatSubscriptionExpiry(updatedAccountData)
+
+    res.json({ success: true, data: responseAccount })
   } catch (error) {
     logger.error('Failed to update OpenAI-Responses account:', error)
     res.status(500).json({
@@ -9246,6 +8799,7 @@ router.get('/droid-accounts', authenticateAdmin, async (req, res) => {
     // 添加使用统计
     const accountsWithStats = await Promise.all(
       accounts.map(async (account) => {
+        const formattedAccount = formatSubscriptionExpiry(account)
         try {
           const usageStats = await redis.getAccountUsageStats(account.id, 'droid')
           let groupInfos = []
@@ -9275,10 +8829,7 @@ router.get('/droid-accounts', authenticateAdmin, async (req, res) => {
           }, 0)
 
           return {
-            ...account,
-            // 映射字段：使用 subscriptionExpiresAt 作为前端显示的 expiresAt
-            // OAuth token 的原始 expiresAt 保留在内部使用
-            expiresAt: account.subscriptionExpiresAt || null,
+            ...formattedAccount,
             schedulable: account.schedulable === 'true',
             boundApiKeysCount,
             groupInfos,
@@ -9291,9 +8842,7 @@ router.get('/droid-accounts', authenticateAdmin, async (req, res) => {
         } catch (error) {
           logger.warn(`Failed to get stats for Droid account ${account.id}:`, error.message)
           return {
-            ...account,
-            // 映射字段：使用 subscriptionExpiresAt 作为前端显示的 expiresAt
-            expiresAt: account.subscriptionExpiresAt || null,
+            ...formattedAccount,
             boundApiKeysCount: 0,
             groupInfos: [],
             usage: {
@@ -9306,7 +8855,9 @@ router.get('/droid-accounts', authenticateAdmin, async (req, res) => {
       })
     )
 
-    return res.json({ success: true, data: accountsWithStats })
+    const formattedAccounts = accountsWithStats.map(formatSubscriptionExpiry)
+
+    return res.json({ success: true, data: formattedAccounts })
   } catch (error) {
     logger.error('Failed to get Droid accounts:', error)
     return res.status(500).json({ error: 'Failed to get Droid accounts', message: error.message })
@@ -9363,7 +8914,8 @@ router.post('/droid-accounts', authenticateAdmin, async (req, res) => {
     }
 
     logger.success(`Created Droid account: ${account.name} (${account.id})`)
-    return res.json({ success: true, data: account })
+    const responseAccount = formatSubscriptionExpiry(account)
+    return res.json({ success: true, data: responseAccount })
   } catch (error) {
     logger.error('Failed to create Droid account:', error)
     return res.status(500).json({ error: 'Failed to create Droid account', message: error.message })
@@ -9410,8 +8962,12 @@ router.put('/droid-accounts/:id', authenticateAdmin, async (req, res) => {
 
     // 映射字段名：前端的expiresAt -> 后端的subscriptionExpiresAt
     const mappedUpdates = { ...updates }
-    if ('expiresAt' in mappedUpdates) {
+    if (Object.prototype.hasOwnProperty.call(updates, 'subscriptionExpiresAt')) {
+      mappedUpdates.subscriptionExpiresAt = updates.subscriptionExpiresAt
+    } else if (Object.prototype.hasOwnProperty.call(mappedUpdates, 'expiresAt')) {
       mappedUpdates.subscriptionExpiresAt = mappedUpdates.expiresAt
+    }
+    if (Object.prototype.hasOwnProperty.call(mappedUpdates, 'subscriptionExpiresAt')) {
       delete mappedUpdates.expiresAt
     }
 
@@ -9447,7 +9003,8 @@ router.put('/droid-accounts/:id', authenticateAdmin, async (req, res) => {
       }
     }
 
-    return res.json({ success: true, data: account })
+    const responseAccount = formatSubscriptionExpiry(account)
+    return res.json({ success: true, data: responseAccount })
   } catch (error) {
     logger.error(`Failed to update Droid account ${req.params.id}:`, error)
     return res.status(500).json({ error: 'Failed to update Droid account', message: error.message })

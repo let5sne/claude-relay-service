@@ -5,8 +5,7 @@ const config = require('../../config/config')
 
 class ClaudeConsoleRelayService {
   constructor() {
-    // Align default UA with recent CLI to improve upstream behavior
-    this.defaultUserAgent = 'claude-cli/1.0.108 (external, cli)'
+    this.defaultUserAgent = 'claude-cli/1.0.69 (external, cli)'
   }
 
   // 🚀 转发请求到Claude Console API
@@ -454,7 +453,9 @@ class ClaudeConsoleRelayService {
 
           let buffer = ''
           let finalUsageReported = false
-          const collectedUsageData = {}
+          const collectedUsageData = {
+            model: body.model || account?.defaultModel || null
+          }
 
           // 处理流数据
           response.data.on('data', (chunk) => {
@@ -474,11 +475,6 @@ class ClaudeConsoleRelayService {
               if (lines.length > 0 && !responseStream.destroyed) {
                 const linesToForward = lines.join('\n') + (lines.length > 0 ? '\n' : '')
 
-                // 记录原始数据（前100个字符）
-                logger.info(
-                  `📨 Raw SSE chunk (${lines.length} lines): ${linesToForward.substring(0, 100)}...`
-                )
-
                 // 应用流转换器如果有
                 if (streamTransformer) {
                   const transformed = streamTransformer(linesToForward)
@@ -491,88 +487,33 @@ class ClaudeConsoleRelayService {
 
                 // 解析SSE数据寻找usage信息
                 for (const line of lines) {
-                  // 支持 "data: {...}" 和 "data:{...}" 两种格式
                   if (line.startsWith('data:')) {
+                    const jsonStr = line.slice(5).trimStart()
+                    if (!jsonStr || jsonStr === '[DONE]') {
+                      continue
+                    }
                     try {
-                      // 移除 "data:" 前缀，可能有空格也可能没有
-                      const jsonStr = line.startsWith('data: ') ? line.slice(6) : line.slice(5)
-                      if (!jsonStr || jsonStr.length === 0) {
-                        continue
-                      }
-
-                      logger.info(`🔍 Parsing JSON: ${jsonStr.substring(0, 150)}...`)
                       const data = JSON.parse(jsonStr)
 
-                      // 调试：记录所有事件类型和数据
-                      if (data.type) {
-                        logger.info(`📡 SSE event: ${data.type}`)
-                        // 记录关键事件的完整数据
-                        if (
-                          data.type === 'message_start' ||
-                          data.type === 'message_delta' ||
-                          data.type === 'message_stop'
-                        ) {
-                          logger.info(`📊 Event data: ${JSON.stringify(data)}`)
-                        }
-                      }
-
-                      // 统一抽取 usage 的辅助函数（兼容多种上游格式）
-                      const extractUsage = (obj) => {
-                        if (!obj) {
-                          return null
-                        }
-                        return (
-                          obj.usage ||
-                          obj.message?.usage ||
-                          obj.delta?.usage ||
-                          obj.response?.usage ||
-                          null
-                        )
-                      }
-
-                      const usageInEvent = extractUsage(data)
-
-                      // 收集usage数据（出现于 message_start 或任意事件的 *.usage）
-                      // 注意：message_start 中的 output_tokens 只是占位符(通常为1)，真实值在 message_delta 中
-                      if (
-                        (data.type === 'message_start' && data.message && data.message.usage) ||
-                        usageInEvent
-                      ) {
-                        const u = usageInEvent || data.message.usage
-                        logger.debug(`📊 Found usage data in ${data.type}:`, JSON.stringify(u))
-                        if (u) {
-                          if (u.input_tokens !== undefined) {
-                            collectedUsageData.input_tokens = u.input_tokens || 0
-                          }
-                          if (u.cache_creation_input_tokens !== undefined) {
-                            collectedUsageData.cache_creation_input_tokens =
-                              u.cache_creation_input_tokens || 0
-                          }
-                          if (u.cache_read_input_tokens !== undefined) {
-                            collectedUsageData.cache_read_input_tokens =
-                              u.cache_read_input_tokens || 0
-                          }
-                          // 不要在 message_start 中收集 output_tokens，因为它只是占位符
-                          // 真实的 output_tokens 会在 message_delta 中更新
-                        }
-                        collectedUsageData.model =
-                          data.message?.model || collectedUsageData.model || body?.model
+                      // 收集usage数据
+                      if (data.type === 'message_start' && data.message && data.message.usage) {
+                        collectedUsageData.input_tokens = data.message.usage.input_tokens || 0
+                        collectedUsageData.cache_creation_input_tokens =
+                          data.message.usage.cache_creation_input_tokens || 0
+                        collectedUsageData.cache_read_input_tokens =
+                          data.message.usage.cache_read_input_tokens || 0
+                        collectedUsageData.model = data.message.model
 
                         // 检查是否有详细的 cache_creation 对象
-                        const cacheCreation =
-                          (u && u.cache_creation && typeof u.cache_creation === 'object'
-                            ? u.cache_creation
-                            : null) ||
-                          (data.message &&
-                          data.message.usage &&
+                        if (
+                          data.message.usage.cache_creation &&
                           typeof data.message.usage.cache_creation === 'object'
-                            ? data.message.usage.cache_creation
-                            : null)
-
-                        if (cacheCreation) {
+                        ) {
                           collectedUsageData.cache_creation = {
-                            ephemeral_5m_input_tokens: cacheCreation.ephemeral_5m_input_tokens || 0,
-                            ephemeral_1h_input_tokens: cacheCreation.ephemeral_1h_input_tokens || 0
+                            ephemeral_5m_input_tokens:
+                              data.message.usage.cache_creation.ephemeral_5m_input_tokens || 0,
+                            ephemeral_1h_input_tokens:
+                              data.message.usage.cache_creation.ephemeral_1h_input_tokens || 0
                           }
                           logger.info(
                             '📊 Collected detailed cache creation data:',
@@ -581,7 +522,6 @@ class ClaudeConsoleRelayService {
                         }
                       }
 
-                      // 处理 message_delta 中的 usage 数据
                       if (data.type === 'message_delta' && data.usage) {
                         // 提取所有usage字段，message_delta可能包含完整的usage信息
                         if (data.usage.output_tokens !== undefined) {
@@ -627,52 +567,13 @@ class ClaudeConsoleRelayService {
                           collectedUsageData.output_tokens !== undefined &&
                           !finalUsageReported
                         ) {
+                          if (!collectedUsageData.model) {
+                            collectedUsageData.model = body.model || account?.defaultModel || null
+                          }
                           logger.info(
                             '🎯 [Console] Complete usage data collected:',
                             JSON.stringify(collectedUsageData)
                           )
-                          usageCallback({ ...collectedUsageData, accountId })
-                          finalUsageReported = true
-                        }
-                      }
-
-                      // 兼容：部分实现把 usage 放在最终的 message_stop 事件中
-                      if (
-                        data.type === 'message_stop' &&
-                        data.usage &&
-                        (data.usage.output_tokens !== undefined ||
-                          data.usage.input_tokens !== undefined)
-                      ) {
-                        if (collectedUsageData.input_tokens === undefined) {
-                          collectedUsageData.input_tokens = data.usage.input_tokens || 0
-                        }
-                        collectedUsageData.output_tokens = data.usage.output_tokens || 0
-
-                        if (!finalUsageReported) {
-                          usageCallback({ ...collectedUsageData, accountId })
-                          finalUsageReported = true
-                        }
-                      }
-
-                      // 兼容：部分上游返回 response.completed 或类似事件携带 usage
-                      if (
-                        (data.type === 'response.completed' || data.type === 'response_complete') &&
-                        (data.usage || (data.response && data.response.usage))
-                      ) {
-                        const u = data.usage || data.response.usage
-                        if (collectedUsageData.input_tokens === undefined) {
-                          collectedUsageData.input_tokens = u.input_tokens || 0
-                        }
-                        collectedUsageData.output_tokens = u.output_tokens || 0
-                        if (u.cache_creation_input_tokens !== undefined) {
-                          collectedUsageData.cache_creation_input_tokens =
-                            u.cache_creation_input_tokens || 0
-                        }
-                        if (u.cache_read_input_tokens !== undefined) {
-                          collectedUsageData.cache_read_input_tokens =
-                            u.cache_read_input_tokens || 0
-                        }
-                        if (!finalUsageReported) {
                           usageCallback({ ...collectedUsageData, accountId })
                           finalUsageReported = true
                         }
@@ -718,7 +619,7 @@ class ClaudeConsoleRelayService {
               }
 
               // 🔧 兜底逻辑：确保所有未保存的usage数据都不会丢失
-              if (!finalUsageReported && usageCallback) {
+              if (!finalUsageReported) {
                 if (
                   collectedUsageData.input_tokens !== undefined ||
                   collectedUsageData.output_tokens !== undefined
@@ -738,7 +639,7 @@ class ClaudeConsoleRelayService {
                   }
                   // 确保有 model 字段
                   if (!collectedUsageData.model) {
-                    collectedUsageData.model = body.model
+                    collectedUsageData.model = body.model || account?.defaultModel || null
                   }
                   logger.info(
                     `📊 [Console] Saving incomplete usage data via fallback: ${JSON.stringify(collectedUsageData)}`
@@ -746,23 +647,9 @@ class ClaudeConsoleRelayService {
                   usageCallback({ ...collectedUsageData, accountId })
                   finalUsageReported = true
                 } else {
-                  // 如果完全没有捕获到 usage 数据，记录一条基本请求（避免对账不一致）
                   logger.warn(
-                    `⚠️ Stream completed without usage data - recording basic request for billing consistency (Account: ${account?.name || accountId})`
+                    '⚠️ [Console] Stream completed but no usage data was captured! This indicates a problem with SSE parsing or API response format.'
                   )
-                  // 记录一条基本请求，token 数为 0，但标记为需要人工核对
-                  usageCallback({
-                    accountId,
-                    model: collectedUsageData.model || body?.model || 'unknown',
-                    input_tokens: 0,
-                    output_tokens: 0,
-                    cache_creation_input_tokens: 0,
-                    cache_read_input_tokens: 0,
-                    // 添加元数据标记，表明这是一个没有 usage 数据的请求
-                    _no_usage_data: true,
-                    _requires_manual_review: true
-                  })
-                  finalUsageReported = true
                 }
               }
 
