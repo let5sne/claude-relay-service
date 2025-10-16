@@ -1451,6 +1451,37 @@ class ApiKeyService {
       logParts.push(`Total: ${totalTokens} tokens`)
 
       logger.database(`📊 Recorded usage: ${keyId} - ${logParts.join(', ')}`)
+
+      // 🔔 发布计费事件到消息队列（异步非阻塞）
+      this._publishBillingEvent({
+        keyId,
+        keyName: keyData?.name,
+        userId: keyData?.userId,
+        model,
+        inputTokens,
+        outputTokens,
+        cacheCreateTokens,
+        cacheReadTokens,
+        ephemeral5mTokens,
+        ephemeral1hTokens,
+        totalTokens,
+        cost: costInfo.totalCost || 0,
+        costBreakdown: {
+          input: costInfo.inputCost || 0,
+          output: costInfo.outputCost || 0,
+          cacheCreate: costInfo.cacheCreateCost || 0,
+          cacheRead: costInfo.cacheReadCost || 0,
+          ephemeral5m: costInfo.ephemeral5mCost || 0,
+          ephemeral1h: costInfo.ephemeral1hCost || 0
+        },
+        accountId,
+        accountType,
+        isLongContext: costInfo.isLongContextRequest || false,
+        requestTimestamp: usageRecord.timestamp
+      }).catch((err) => {
+        // 发布失败不影响主流程，只记录错误
+        logger.warn('⚠️ Failed to publish billing event:', err.message)
+      })
     } catch (error) {
       logger.error('❌ Failed to record usage:', error)
     }
@@ -1687,6 +1718,17 @@ class ApiKeyService {
       logger.database?.(`🐘 Auto-synced account ${accountId} into PostgreSQL`)
     } catch (error) {
       logger.warn(`⚠️ Failed to auto-sync account ${accountId} into PostgreSQL: ${error.message}`)
+    }
+  }
+
+  // 🔔 发布计费事件（内部方法）
+  async _publishBillingEvent(eventData) {
+    try {
+      const billingEventPublisher = require('./billingEventPublisher')
+      await billingEventPublisher.publishBillingEvent(eventData)
+    } catch (error) {
+      // 静默失败，不影响主流程
+      logger.debug('Failed to publish billing event:', error.message)
     }
   }
 

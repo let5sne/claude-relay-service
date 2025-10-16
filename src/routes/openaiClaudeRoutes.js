@@ -5,8 +5,6 @@
 
 const express = require('express')
 const router = express.Router()
-const fs = require('fs')
-const path = require('path')
 const logger = require('../utils/logger')
 const { authenticateApiKey } = require('../middleware/auth')
 const claudeRelayService = require('../services/claudeRelayService')
@@ -16,36 +14,7 @@ const unifiedClaudeScheduler = require('../services/unifiedClaudeScheduler')
 const claudeCodeHeadersService = require('../services/claudeCodeHeadersService')
 const sessionHelper = require('../utils/sessionHelper')
 const { updateRateLimitCounters } = require('../utils/rateLimitHelper')
-
-// 加载模型定价数据（带回退，不阻塞启动）
-let modelPricingData = {}
-try {
-  const dataPath = path.join(process.cwd(), 'data', 'model_pricing.json')
-  const fallbackPath = path.join(
-    __dirname,
-    '../../resources/model-pricing/model_prices_and_context_window.json'
-  )
-
-  let pricingPathToUse = null
-  if (fs.existsSync(dataPath)) {
-    pricingPathToUse = dataPath
-  } else if (fs.existsSync(fallbackPath)) {
-    pricingPathToUse = fallbackPath
-    logger.warn('⚠️  data/model_pricing.json missing, using resources fallback')
-  }
-
-  if (pricingPathToUse) {
-    const pricingContent = fs.readFileSync(pricingPathToUse, 'utf8')
-    modelPricingData = JSON.parse(pricingContent)
-    logger.info(
-      `✅ Model pricing data loaded from ${path.relative(process.cwd(), pricingPathToUse)}`
-    )
-  } else {
-    logger.warn('💰 No pricing file found; model details will use defaults')
-  }
-} catch (error) {
-  logger.error('❌ Failed to load model pricing data:', error)
-}
+const pricingService = require('../services/pricingService')
 
 // 🔧 辅助函数：检查 API Key 权限
 function checkPermissions(apiKeyData, requiredPermission = 'claude') {
@@ -159,7 +128,7 @@ router.get('/v1/models/:model', authenticateApiKey, async (req, res) => {
     }
 
     // 从 model_pricing.json 获取模型信息
-    const modelData = modelPricingData[modelId]
+    const modelData = pricingService.getModelPricing(modelId)
 
     // 构建标准 OpenAI 格式的模型响应
     let modelInfo
@@ -517,3 +486,4 @@ router.post('/v1/completions', authenticateApiKey, async (req, res) => {
 })
 
 module.exports = router
+module.exports.handleChatCompletion = handleChatCompletion

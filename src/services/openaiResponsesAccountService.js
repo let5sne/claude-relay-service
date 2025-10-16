@@ -6,19 +6,6 @@ const config = require('../../config/config')
 const LRUCache = require('../utils/lruCache')
 const postgresUsageRepository = require('../repositories/postgresUsageRepository')
 
-function normalizeSubscriptionExpiresAt(value) {
-  if (value === undefined || value === null || value === '') {
-    return ''
-  }
-
-  const date = value instanceof Date ? value : new Date(value)
-  if (Number.isNaN(date.getTime())) {
-    return ''
-  }
-
-  return date.toISOString()
-}
-
 class OpenAIResponsesAccountService {
   constructor() {
     // 加密相关常量
@@ -63,8 +50,7 @@ class OpenAIResponsesAccountService {
       schedulable = true, // 是否可被调度
       dailyQuota = 0, // 每日额度限制（美元），0表示不限制
       quotaResetTime = '00:00', // 额度重置时间（HH:mm格式）
-      rateLimitDuration = 60, // 限流时间（分钟）
-      subscriptionExpiresAt = null
+      rateLimitDuration = 60 // 限流时间（分钟）
     } = options
 
     // 验证必填字段
@@ -90,6 +76,11 @@ class OpenAIResponsesAccountService {
       isActive: isActive.toString(),
       accountType,
       schedulable: schedulable.toString(),
+
+      // ✅ 新增：账户订阅到期时间（业务字段，手动管理）
+      // 注意：OpenAI-Responses 使用 API Key 认证，没有 OAuth token，因此没有 expiresAt
+      subscriptionExpiresAt: options.subscriptionExpiresAt || null,
+
       createdAt: new Date().toISOString(),
       lastUsedAt: '',
       status: 'active',
@@ -103,8 +94,7 @@ class OpenAIResponsesAccountService {
       dailyUsage: '0',
       lastResetDate: redis.getDateStringInTimezone(),
       quotaResetTime,
-      quotaStoppedAt: '',
-      subscriptionExpiresAt: normalizeSubscriptionExpiresAt(subscriptionExpiresAt)
+      quotaStoppedAt: ''
     }
 
     // 保存到 Redis
@@ -114,7 +104,6 @@ class OpenAIResponsesAccountService {
 
     return {
       ...accountData,
-      subscriptionExpiresAt: accountData.subscriptionExpiresAt || null,
       apiKey: '***' // 返回时隐藏敏感信息
     }
   }
@@ -140,11 +129,6 @@ class OpenAIResponsesAccountService {
         accountData.proxy = null
       }
     }
-
-    accountData.subscriptionExpiresAt =
-      accountData.subscriptionExpiresAt && accountData.subscriptionExpiresAt !== ''
-        ? accountData.subscriptionExpiresAt
-        : null
 
     return accountData
   }
@@ -173,11 +157,10 @@ class OpenAIResponsesAccountService {
         : updates.baseApi
     }
 
-    if (Object.prototype.hasOwnProperty.call(updates, 'subscriptionExpiresAt')) {
-      updates.subscriptionExpiresAt = normalizeSubscriptionExpiresAt(updates.subscriptionExpiresAt)
-    } else if (Object.prototype.hasOwnProperty.call(updates, 'expiresAt')) {
-      updates.subscriptionExpiresAt = normalizeSubscriptionExpiresAt(updates.expiresAt)
-      delete updates.expiresAt
+    // ✅ 直接保存 subscriptionExpiresAt（如果提供）
+    // OpenAI-Responses 使用 API Key，没有 token 刷新逻辑，不会覆盖此字段
+    if (updates.subscriptionExpiresAt !== undefined) {
+      // 直接保存，不做任何调整
     }
 
     // 更新 Redis
@@ -251,6 +234,10 @@ class OpenAIResponsesAccountService {
           // 转换 isActive 字段为布尔值
           account.isActive = account.isActive === 'true'
 
+          // ✅ 前端显示订阅过期时间（业务字段）
+          account.expiresAt = account.subscriptionExpiresAt || null
+          account.platform = account.platform || 'openai-responses'
+
           accounts.push(account)
         }
       }
@@ -296,10 +283,10 @@ class OpenAIResponsesAccountService {
             accountData.schedulable = accountData.schedulable !== 'false'
             // 转换 isActive 字段为布尔值
             accountData.isActive = accountData.isActive === 'true'
-            accountData.subscriptionExpiresAt =
-              accountData.subscriptionExpiresAt && accountData.subscriptionExpiresAt !== ''
-                ? accountData.subscriptionExpiresAt
-                : null
+
+            // ✅ 前端显示订阅过期时间（业务字段）
+            accountData.expiresAt = accountData.subscriptionExpiresAt || null
+            accountData.platform = accountData.platform || 'openai-responses'
 
             accounts.push(accountData)
           }
@@ -545,6 +532,25 @@ class OpenAIResponsesAccountService {
     }
 
     return { success: true, message: 'Account status reset successfully' }
+  }
+
+  // ⏰ 检查账户订阅是否已过期
+  isSubscriptionExpired(account) {
+    if (!account.subscriptionExpiresAt) {
+      return false // 未设置过期时间，视为永不过期
+    }
+
+    const expiryDate = new Date(account.subscriptionExpiresAt)
+    const now = new Date()
+
+    if (expiryDate <= now) {
+      logger.debug(
+        `⏰ OpenAI-Responses Account ${account.name} (${account.id}) subscription expired at ${account.subscriptionExpiresAt}`
+      )
+      return true
+    }
+
+    return false
   }
 
   // 获取限流信息
