@@ -11,8 +11,7 @@ const logger = require('./utils/logger')
 const redis = require('./models/redis')
 const postgres = require('./models/db')
 const pricingService = require('./services/pricingService')
-// chore: trigger release pipeline (no functional change)
-// chore: trigger new patch release to fix docker build (attempt 2)
+// chore: trigger v1.1.180 docker build
 const cacheMonitor = require('./utils/cacheMonitor')
 
 // Import routes
