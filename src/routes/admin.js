@@ -5943,6 +5943,74 @@ router.get('/usage-trend', authenticateAdmin, async (req, res) => {
   }
 })
 
+// 获取单个API Key的使用详情记录
+router.get('/api-keys/:keyId/usage-details', authenticateAdmin, async (req, res) => {
+  try {
+    const { keyId } = req.params
+    const { range = '30d', limit = 50 } = req.query
+
+    // 计算时间范围
+    let startDate
+    const endDate = new Date()
+
+    switch (range) {
+      case 'today':
+        startDate = new Date()
+        startDate.setHours(0, 0, 0, 0)
+        break
+      case '7days':
+        startDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+        break
+      case '30d':
+        startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+        break
+      case 'total':
+        startDate = new Date(0) // 从1970年开始
+        break
+      default:
+        startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+    }
+
+    // 获取使用记录
+    const usageRecords = await redis.getUsageRecords(keyId, parseInt(limit) * 2) // 获取更多记录以便过滤
+
+    // 过滤时间范围内的记录并格式化
+    const filteredRecords = usageRecords
+      .filter((record) => {
+        const recordDate = new Date(record.timestamp)
+        return recordDate >= startDate && recordDate <= endDate
+      })
+      .slice(0, parseInt(limit))
+      .map((record) => ({
+        id: record.timestamp, // 使用时间戳作为唯一ID
+        occurred_at: record.timestamp,
+        model: record.model || 'unknown',
+        input_tokens: parseInt(record.inputTokens) || 0,
+        output_tokens: parseInt(record.outputTokens) || 0,
+        cache_create_tokens: parseInt(record.cacheCreateTokens) || 0,
+        cache_read_tokens: parseInt(record.cacheReadTokens) || 0,
+        total_tokens: parseInt(record.totalTokens) || 0,
+        total_cost: parseFloat(record.cost) || 0,
+        metadata: record.metadata || {}
+      }))
+
+    return res.json({
+      success: true,
+      items: filteredRecords,
+      total: filteredRecords.length,
+      range,
+      generatedAt: new Date().toISOString()
+    })
+  } catch (error) {
+    logger.error('❌ Failed to get API key usage details:', error)
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to get API key usage details',
+      message: error.message
+    })
+  }
+})
+
 // 获取单个API Key的模型统计
 router.get('/api-keys/:keyId/model-stats', authenticateAdmin, async (req, res) => {
   try {
