@@ -4578,6 +4578,124 @@ router.get('/accounts/:accountId/usage-history', authenticateAdmin, async (req, 
   }
 })
 
+// 获取账户下所有API Key的使用明细
+router.get('/accounts/:accountId/usage-breakdown', authenticateAdmin, async (req, res) => {
+  try {
+    const { accountId } = req.params
+    const { range = '30d', limit = 100 } = req.query
+
+    // 获取该账户下的所有API Keys
+    const allApiKeys = await apiKeyService.getAllApiKeys()
+    const accountApiKeys = allApiKeys.filter((key) => key.accountId === accountId)
+
+    if (accountApiKeys.length === 0) {
+      return res.json({
+        success: true,
+        items: [],
+        message: 'No API keys found for this account'
+      })
+    }
+
+    // 计算时间范围
+    let startDate
+    const endDate = new Date()
+
+    switch (range) {
+      case 'today':
+        startDate = new Date()
+        startDate.setHours(0, 0, 0, 0)
+        break
+      case '7days':
+        startDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+        break
+      case '30d':
+        startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+        break
+      case 'total':
+        startDate = new Date(0) // 从1970年开始
+        break
+      default:
+        startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+    }
+
+    // 为每个API Key获取使用统计
+    const breakdownItems = []
+
+    for (const apiKey of accountApiKeys) {
+      try {
+        // 获取使用记录
+        const usageRecords = await redis.getUsageRecords(apiKey.id, parseInt(limit))
+
+        // 过滤时间范围内的记录
+        const filteredRecords = usageRecords.filter((record) => {
+          const recordDate = new Date(record.timestamp)
+          return recordDate >= startDate && recordDate <= endDate
+        })
+
+        if (filteredRecords.length === 0) {
+          continue
+        }
+
+        // 聚合统计
+        const totalRequests = filteredRecords.length
+        let inputTokens = 0
+        let outputTokens = 0
+        let cacheCreateTokens = 0
+        let cacheReadTokens = 0
+        let totalCost = 0
+        let lastUsedAt = null
+
+        filteredRecords.forEach((record) => {
+          inputTokens += parseInt(record.inputTokens) || 0
+          outputTokens += parseInt(record.outputTokens) || 0
+          cacheCreateTokens += parseInt(record.cacheCreateTokens) || 0
+          cacheReadTokens += parseInt(record.cacheReadTokens) || 0
+          totalCost += parseFloat(record.cost) || 0
+
+          if (!lastUsedAt || new Date(record.timestamp) > new Date(lastUsedAt)) {
+            lastUsedAt = record.timestamp
+          }
+        })
+
+        const totalTokens = inputTokens + outputTokens + cacheCreateTokens + cacheReadTokens
+
+        breakdownItems.push({
+          apiKeyId: apiKey.id,
+          apiKeyName: apiKey.name || apiKey.id,
+          requests: totalRequests,
+          inputTokens,
+          outputTokens,
+          cacheCreateTokens,
+          cacheReadTokens,
+          totalTokens,
+          totalCost,
+          lastUsedAt
+        })
+      } catch (error) {
+        logger.error(`Failed to get usage for API key ${apiKey.id}:`, error)
+      }
+    }
+
+    // 按请求数排序
+    breakdownItems.sort((a, b) => b.requests - a.requests)
+
+    return res.json({
+      success: true,
+      items: breakdownItems.slice(0, parseInt(limit)),
+      total: breakdownItems.length,
+      range,
+      generatedAt: new Date().toISOString()
+    })
+  } catch (error) {
+    logger.error('❌ Failed to get API key usage breakdown:', error)
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to get API key usage breakdown',
+      message: error.message
+    })
+  }
+})
+
 // 📊 系统统计
 
 // 获取系统概览
