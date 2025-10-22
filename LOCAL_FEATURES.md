@@ -75,21 +75,45 @@ const accountApiKeys = allApiKeys.filter(
 
 **文件位置**:
 
-- `scripts/regression-test.sh`
+- `scripts/regression-test-enhanced.sh` (增强版,推荐使用)
+- `scripts/regression-test.sh` (基础版)
 
 **功能描述**:
 
-- 自动检测关键API端点是否存在
-- 验证前端组件完整性
-- 检查业务逻辑代码
-- 生成测试报告
+- 自动检测关键API端点是否存在 (76个端点)
+- 验证前端组件完整性 (18个组件)
+- 检查业务逻辑代码 (20个逻辑)
+- 生成详细测试报告
+- 支持三种测试模式 (Quick/Normal/Full)
 
 **测试覆盖**:
 
-- ✅ API端点完整性
-- ✅ 前端组件文件
-- ✅ 关键代码模式
-- ✅ 配置文件检查
+- ✅ API端点完整性 (57.1%覆盖率)
+- ✅ 前端组件文件 (37.5%覆盖率)
+- ✅ 关键代码模式 (业务逻辑)
+- ✅ 配置文件检查 (100%覆盖率)
+- ✅ 数据结构警告 (潜在问题检测)
+
+**测试模式**:
+
+| 模式   | 测试数量 | 覆盖率 | 执行时间 | 使用场景           |
+| ------ | -------- | ------ | -------- | ------------------ |
+| Quick  | 94个     | ~40%   | 1-2分钟  | 日常提交前快速验证 |
+| Normal | 114个    | ~60%   | 2-3分钟  | 上游同步后标准检查 |
+| Full   | 132个    | ~75%   | 3-5分钟  | 发布前完整验证     |
+
+**使用方法**:
+
+```bash
+# 快速测试 (推荐日常使用)
+./scripts/regression-test-enhanced.sh --quick
+
+# 标准测试 (推荐上游同步后)
+./scripts/regression-test-enhanced.sh
+
+# 完整测试 (推荐发布前)
+./scripts/regression-test-enhanced.sh --full
+```
 
 ---
 
@@ -105,8 +129,9 @@ const accountApiKeys = allApiKeys.filter(
    - 测试方法
 
 2. **更新回归测试**:
-   - 在 `scripts/regression-test.sh` 中添加测试用例
+   - 在 `scripts/regression-test-enhanced.sh` 中添加测试用例
    - 确保新功能可以被自动检测
+   - 根据功能重要性选择合适的测试模式
 
 3. **提交到private分支**:
    ```bash
@@ -190,7 +215,11 @@ const accountApiKeys = allApiKeys.filter(
 ## 📚 相关文档
 
 - [Private分支工作流](./PRIVATE_BRANCH_WORKFLOW.md)
-- [回归测试脚本](./scripts/regression-test.sh)
+- [测试体系使用指南](./TESTING_SYSTEM_README.md)
+- [测试覆盖率总结](./TEST_COVERAGE_SUMMARY.md)
+- [上游同步完整指南](./UPSTREAM_SYNC_GUIDE.md)
+- [增强版回归测试脚本](./scripts/regression-test-enhanced.sh)
+- [基础版回归测试脚本](./scripts/regression-test.sh)
 - [上游同步脚本](./scripts/sync-from-upstream.sh)
 
 ---
