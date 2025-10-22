@@ -4587,9 +4587,9 @@ router.get('/accounts/:accountId/usage-breakdown', authenticateAdmin, async (req
     // 获取该账户下的所有API Keys
     // 需要查找所有绑定了该服务账户的API Keys
     const allApiKeys = await apiKeyService.getAllApiKeys()
-    const accountApiKeys = allApiKeys.filter((key) => {
-      // 检查API Key是否绑定了该账户
-      return (
+    const accountApiKeys = allApiKeys.filter(
+      (key) =>
+        // 检查API Key是否绑定了该账户
         key.claudeAccountId === accountId ||
         key.claudeConsoleAccountId === accountId ||
         key.openaiAccountId === accountId ||
@@ -4598,8 +4598,7 @@ router.get('/accounts/:accountId/usage-breakdown', authenticateAdmin, async (req
         key.ccrAccountId === accountId ||
         key.droidAccountId === accountId ||
         key.openaiResponsesAccountId === accountId
-      )
-    })
+    )
 
     if (accountApiKeys.length === 0) {
       return res.json({
