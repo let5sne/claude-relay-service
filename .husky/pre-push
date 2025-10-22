@@ -1,5 +1,18 @@
 #!/usr/bin/env sh
 
+# 保护private分支，防止意外推送
+while read local_ref local_sha remote_ref remote_sha; do
+  if [ "$remote_ref" = "refs/heads/private" ]; then
+    echo "❌ 错误：禁止直接推送private分支！"
+    echo "💡 这是你的私有商业功能分支，需要明确确认后才能推送。"
+    echo ""
+    echo "如果你确实需要推送private分支，请使用："
+    echo "  git push --no-verify origin private"
+    echo ""
+    exit 1
+  fi
+done
+
 echo "Running local CI (backend) before push..."
 npm run -s ci:backend || exit 1
 
